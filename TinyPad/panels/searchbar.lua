@@ -57,7 +57,8 @@ function t.searchbar:Resize(width,height)
     t.searchbar:SetHeight(buttonSize)
 end
 
-function t.searchbar:SearchOnTextChanged()
+function t.searchbar:SearchOnTextChanged(userInput)
+    t.compat.FixTurkishLetters(t.searchbar.searchBox,userInput) -- 3.3.5a: Turkish keyboard input, see compat.lua
     local hasText = t.searchbar.searchBox:GetText():trim():len() > 0
     t.compat.SetShown(t.searchbar.searchBox.instructions,not hasText) -- 3.3.5a: was :SetShown() (3 lines)
     t.compat.SetShown(t.searchbar.searchBox.clearButton,hasText)

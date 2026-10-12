@@ -220,6 +220,7 @@ end
 
 -- when userInput is true, the user added text and it wasn't added programatically
 function t.editor:OnTextChanged(userInput)
+    t.compat.FixTurkishLetters(self,userInput) -- 3.3.5a: Turkish keyboard input, see compat.lua
     if userInput then
         -- remove any "redo" after a user input happens
         for i=#t.editor.undoStack,t.editor.undoIndex+1,-1 do

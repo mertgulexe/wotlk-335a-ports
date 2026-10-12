@@ -114,7 +114,8 @@ function t.bookmarks:ShowAddRemoveButton()
     t.bookmarks.titleEditBox:Hide()
 end
 
-function t.bookmarks:TitleEditBoxOnTextChanged()
+function t.bookmarks:TitleEditBoxOnTextChanged(userInput)
+    t.compat.FixTurkishLetters(t.bookmarks.titleEditBox,userInput) -- 3.3.5a: Turkish keyboard input, see compat.lua
     local hasText = t.bookmarks.titleEditBox:GetText():trim():len() > 0
     t.compat.SetShown(t.bookmarks.titleEditBox.instructions,not hasText) -- 3.3.5a: was :SetShown() (2 lines)
     t.compat.SetShown(t.bookmarks.titleEditBox.clearButton,hasText)

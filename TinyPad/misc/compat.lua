@@ -63,3 +63,29 @@ function t.compat.After(delay,func)
     tinsert(timers,{scheduled=now,due=now+(delay or 0),func=func})
     timerFrame:Show()
 end
+
+-- 3.3.5a: the client decodes text typed on a Turkish keyboard (and pasted text) with the Western code page, so
+-- g breve, dotless i, s cedilla, G breve, dotted I and S cedilla arrive as eth, y acute, thorn, ETH, Y acute and
+-- THORN. Every pair is 2 bytes in UTF-8, so swapping them back keeps the cursor where it was. Runs only for user
+-- input while the "Turkish Letters" setting is on (genuine eth/thorn, e.g. Icelandic, would be swapped too).
+local TURKISH_PATTERN = "\195[\144\157\158\176\189\190]"
+local TURKISH_LETTERS = {
+    ["\195\176"] = "\196\159", -- U+00F0 eth      -> U+011F g breve
+    ["\195\144"] = "\196\158", -- U+00D0 ETH      -> U+011E G breve
+    ["\195\189"] = "\196\177", -- U+00FD y acute  -> U+0131 dotless i
+    ["\195\157"] = "\196\176", -- U+00DD Y acute  -> U+0130 dotted I
+    ["\195\190"] = "\197\159", -- U+00FE thorn    -> U+015F s cedilla
+    ["\195\158"] = "\197\158", -- U+00DE THORN    -> U+015E S cedilla
+}
+
+function t.compat.FixTurkishLetters(editBox,userInput)
+    if not userInput or not (t.settings.saved and t.settings.saved.TurkishLetters) then
+        return
+    end
+    local text = editBox:GetText()
+    if text:find(TURKISH_PATTERN) then
+        local cursor = editBox:GetCursorPosition()
+        editBox:SetText((text:gsub(TURKISH_PATTERN,TURKISH_LETTERS)))
+        editBox:SetCursorPosition(cursor)
+    end
+end
