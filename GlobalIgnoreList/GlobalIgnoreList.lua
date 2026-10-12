@@ -885,7 +885,7 @@ local function ApplicationStartup(self)
 		return
 	end
 			
-	M.ShowMsg(L["LOAD_1"])
+	-- M.ShowMsg(L["LOAD_1"]) -- login message removed on request; /gi still shows help
 
 	-- Set filter defaults
 	

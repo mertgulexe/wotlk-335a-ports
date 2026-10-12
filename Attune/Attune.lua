@@ -946,7 +946,8 @@ function Attune:OnEnableEnd()
 	if (Attune_DB.repWidget.point == nil) then Attune_DB.repWidget.point = nil; end
 ]]
 
-	if Attune_DB.showOtherChat then DEFAULT_CHAT_FRAME:AddMessage("|cffff00ff[Attune]|r "..Lang["Splash"]:gsub("##VERSION##", attunelocal_version)) end
+	-- login splash removed on request; /attune info still shows it
+	-- if Attune_DB.showOtherChat then DEFAULT_CHAT_FRAME:AddMessage("|cffff00ff[Attune]|r "..Lang["Splash"]:gsub("##VERSION##", attunelocal_version)) end
 
 
 	-- add new fields to toons data
