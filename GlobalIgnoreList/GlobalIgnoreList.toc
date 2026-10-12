@@ -1,0 +1,14 @@
+## Interface: 30300
+## Title: Global Ignore List (Classic)
+## Notes: Maintain ignore list across all characters, filter chat spam and more
+## Author: IceyPop
+## Version: 11.2.7.1-wotlk335
+## SavedVariables: GlobalIgnoreDB
+## SavedVariablesPerCharacter: GlobalIgnoreImported
+
+GIL_Localization.lua
+GIL_Globals.lua
+GIL_Compat335.lua
+GIL_UI.lua
+GIL_BlizzardUI.lua
+GlobalIgnoreList.lua

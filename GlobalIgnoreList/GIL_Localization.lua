@@ -172,6 +172,13 @@ L["OPT_28"] = "Show message when auto declining invites and duels"
 L["TIP_1"]  = "|cffffffffFilter Editing Help\n\n|cffffff00Enter chat filter in the box below.  Chat text is converted to lower cased letters before\napplying filters, so all filters must be defined using lower cased letters only.\n\nAny links entered into the edit box will be automatically converted to the appropriate\nfilter tag.\n\nPlease view the website for more detailed information on creating chat filters."
 L["TIP_2"]  = "|cffffffffFilter Testing Help\n\n|cffffff00Enter chat text into the Filter Testing box and GIL will apply the current filter\nto the contents in the box whenever the Test button is clicked.\n\nThe result of the applied filter is shown as BLOCKED if the text would be\nfiltered, or PASSED if the text would not be filtered."
 L["TIP_3"]  = "Channel"
+-- 3.3.5a: new strings (English only; other locales fall back to these)
+L["RCM_8_UNIT"]	= "On your Global Ignore List"
+L["BOX_14"]	= "|cffffff00INVITE WARNING: %s\n\n|cffffffffThis player is on your Global Ignore List.  The invite has already been sent.\n"
+L["CHAT_2"]	= "WARNING: You invited |cffffff00%s|cffffffff, who is on your Global Ignore List"
+L["CMD_20"]	= "This server cannot ignore players of other realms, so only same server characters are added to the account wide ignore (|cffffff00on|cffffffff)"
+L["OPT_16_335"] = "Add Global Ignore entries to player right-click menus"
+L["OPT_29"]	= "This server cannot ignore players of other realms.  They stay on the Global Ignore List only, which still filters their chat."
 
 -- GERMAN
 -- Translated by LadyBellaSilver

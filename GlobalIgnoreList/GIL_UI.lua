@@ -10,6 +10,9 @@ local L = addon.L -- localization entries
 local V = addon.V -- shared variables
 local M = addon.M -- shared methods
 
+-- 3.3.5a: GIL's private friend list table (GIL_Compat335.lua); never Blizzard's globals
+local C_FriendList = addon.FL or C_FriendList
+
 V.needSorted					= true
 V.nameUI							= ""
 
@@ -53,6 +56,112 @@ local COL_STATE				= 26
 local COL_FILTER			= 368
 local COL_BLOCKED			= 52
 local COL_INFOTEXT			= 400
+local BlockScrollRow		= {}	-- 3.3.5a: mouse-enabled rows holding the block history texts
+
+------------------------------
+-- 3.3.5a: WIDGET HELPERS   --
+------------------------------
+
+-- 3.3.5a: InsetFrameTemplate does not exist; a plain frame with a thin backdrop instead
+local function CreateInset (name, parent)
+	local f = CreateFrame("Frame", name, parent)
+
+	f:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 }
+	})
+	f:SetBackdropColor(0, 0, 0, 0.5)
+	f:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+
+	return f
+end
+
+-- 3.3.5a: InputScrollFrameTemplate does not exist; a UIPanelScrollFrameTemplate scroll frame with
+-- a multi-line edit box as its scroll child, stored as .EditBox like the retail template
+local function CreateInputScroll (name, parent)
+	local sf = CreateFrame("ScrollFrame", name, parent, "UIPanelScrollFrameTemplate")
+	local eb = CreateFrame("EditBox", name .. "EditBox", sf)
+	local bg = CreateFrame("Frame", nil, sf)
+
+	eb:SetMultiLine(true)
+	eb:SetAutoFocus(false)
+	eb:SetFontObject("ChatFontNormal")
+	eb:SetWidth(100)
+	eb:SetHeight(60)
+	eb:SetScript("OnTextChanged", function(self) ScrollingEdit_OnTextChanged(self, self:GetParent()) end)
+	eb:SetScript("OnCursorChanged", ScrollingEdit_OnCursorChanged)
+	eb:SetScript("OnUpdate", function(self, elapsed) ScrollingEdit_OnUpdate(self, elapsed, self:GetParent()) end)
+	eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+	sf:SetScrollChild(eb)
+	sf:EnableMouse(true)
+	sf:SetScript("OnMouseDown", function(self) self.EditBox:SetFocus() end)
+	sf.EditBox = eb
+
+	bg:SetPoint("TOPLEFT", sf, "TOPLEFT", -6, 6)
+	bg:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 26, -6)
+	bg:SetFrameLevel(sf:GetFrameLevel())
+	bg:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 }
+	})
+	bg:SetBackdropColor(0, 0, 0, 0.6)
+	bg:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+
+	return sf
+end
+
+-- 3.3.5a: MenuUtil.CreateContextMenu does not exist; EasyMenu on a GIL-owned dropdown frame.
+-- entries: { text, func } pairs; dividers of the retail menus are left out.
+local contextMenu = nil
+
+local function ContextMenu (title, entries)
+	if not contextMenu then
+		contextMenu = CreateFrame("Frame", "GILContextMenu", UIParent, "UIDropDownMenuTemplate")
+	end
+
+	local list = {}
+
+	if title then
+		list[#list + 1] = { text = title, isTitle = 1, notCheckable = 1 }
+	end
+
+	for count = 1, #entries do
+		list[#list + 1] = { text = entries[count][1], func = entries[count][2], notCheckable = 1 }
+	end
+
+	EasyMenu(list, contextMenu, "cursor", 0, 0, "MENU")
+end
+
+-- 3.3.5a: the modern dropdown button does not exist; a UIDropDownMenuTemplate dropdown whose
+-- choices are { text, value } pairs; getText() gives the current text, onPick(value) stores it
+local function CreateChoice (name, parent, width, choices, getText, onPick)
+	local d = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
+
+	UIDropDownMenu_SetWidth(d, width)
+	UIDropDownMenu_Initialize(d, function(self, level)
+		local info
+
+		for count = 1, #choices do
+			info = UIDropDownMenu_CreateInfo()
+			info.text  = choices[count][1]
+			info.value = choices[count][2]
+			info.func  = function(button)
+				onPick(button.value)
+				UIDropDownMenu_SetText(d, getText())
+			end
+			info.checked = (getText() == choices[count][1]) and 1 or nil
+			UIDropDownMenu_AddButton(info, level)
+		end
+	end)
+	UIDropDownMenu_SetText(d, getText())
+
+	return d
+end
 
 -------------------------
 -- DIALOGS AND BUTTONS --
@@ -60,7 +169,8 @@ local COL_INFOTEXT			= 400
 
 StaticPopupDialogs["GIL_REASON"] = {
 
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "Edit ignore note for |cffffff00%s:",
 	maxLetters     = 128,
 	hasEditBox	   = 1,
@@ -68,16 +178,25 @@ StaticPopupDialogs["GIL_REASON"] = {
 	button1        = L["BOX_3"],
 	button2        = L["BOX_5"],
   
+	-- 3.3.5a: the popup's edit box is self.editBox (lowercase); EditBoxOnEnterPressed gets the
+	-- edit box itself; entry 0 (name no longer listed) is neither shown nor written
 	OnShow = function(self)
-		self.EditBox:SetText(GlobalIgnoreDB.notes[M.hasAnyIgnored(V.nameUI)])
-		self.EditBox:SetFocus()
+		local editBox = self.editBox or self.EditBox
+		editBox:SetText(GlobalIgnoreDB.notes[M.hasAnyIgnored(V.nameUI)] or "")
+		editBox:SetFocus()
 	end,
 	OnAccept = function(self)
-		GlobalIgnoreDB.notes[M.hasAnyIgnored(V.nameUI)] = self.EditBox:GetText()
+		local idx = M.hasAnyIgnored(V.nameUI)
+		if idx > 0 then
+			GlobalIgnoreDB.notes[idx] = (self.editBox or self.EditBox):GetText()
+		end
 		M.GILUpdateUI()
 	end,
 	EditBoxOnEnterPressed = function(self)
-		GlobalIgnoreDB.notes[M.hasAnyIgnored(V.nameUI)] = self:GetParent().EditBox:GetText()
+		local idx = M.hasAnyIgnored(V.nameUI)
+		if idx > 0 then
+			GlobalIgnoreDB.notes[idx] = self:GetText()
+		end
 		self:GetParent():Hide()
 		M.GILUpdateUI()
 	end,
@@ -87,14 +206,16 @@ StaticPopupDialogs["GIL_REASON"] = {
 }
 
 local function setExpire (text)
-	if tonumber(text) then
-		GlobalIgnoreDB.expList[M.hasAnyIgnored(V.nameUI)] = tonumber(text)
+	local idx = M.hasAnyIgnored(V.nameUI) -- 3.3.5a: never write entry 0
+	if tonumber(text) and idx > 0 then
+		GlobalIgnoreDB.expList[idx] = tonumber(text)
 		M.GILUpdateUI()
 	end	
 end
 
 StaticPopupDialogs["GIL_CONFIRMPRUNE"] = {
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "|cffffff00"..L["BOX_12"].."|cffffffff\n\n"..L["BOX_13"],
 	whileDead      = 1,
 	button1        = L["BOX_6"],
@@ -112,7 +233,8 @@ StaticPopupDialogs["GIL_CONFIRMPRUNE"] = {
 }
 
 StaticPopupDialogs["GIL_PRUNE"] = {
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "|cffffff00%s|cffffffff\n\n"..L["BOX_11"],
 	maxLetters     = 4,
 	hasEditBox	   = 1,
@@ -121,16 +243,19 @@ StaticPopupDialogs["GIL_PRUNE"] = {
 	button2        = L["BOX_5"],
   
 	OnShow = function(self)
-		self.EditBox:SetText("365")
-		self.EditBox:SetFocus()
+		local editBox = self.editBox or self.EditBox -- 3.3.5a: editBox
+		editBox:SetText("365")
+		editBox:SetFocus()
 	end,
 	OnAccept = function(self)
 		local d = nil
-		d = tonumber(self.EditBox:GetText());
+		d = tonumber((self.editBox or self.EditBox):GetText());
 		if (d and d > 0) then
 			local c = M.PruneIgnoreList(d, false);
 			local f = StaticPopup_Show("GIL_CONFIRMPRUNE", c);
-			f.data = d;
+			if f then -- 3.3.5a: nil when all four popups are in use
+				f.data = d;
+			end
 		end		
 	end,
 	EditBoxOnEnterPressed = function(self)
@@ -143,7 +268,8 @@ StaticPopupDialogs["GIL_PRUNE"] = {
 
 StaticPopupDialogs["GIL_EXPIRE"] = {
 
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "|cffffff00%s|cffffffff\n\n"..L["BOX_1"],
 	maxLetters     = 4,
 	hasEditBox	   = 1,
@@ -152,14 +278,15 @@ StaticPopupDialogs["GIL_EXPIRE"] = {
 	button2        = L["BOX_5"],
   
 	OnShow         = function(self)
-		self.EditBox:SetText(GlobalIgnoreDB.expList[M.hasAnyIgnored(V.nameUI)])
-		self.EditBox:SetFocus()
+		local editBox = self.editBox or self.EditBox -- 3.3.5a: editBox
+		editBox:SetText(GlobalIgnoreDB.expList[M.hasAnyIgnored(V.nameUI)] or "")
+		editBox:SetFocus()
 	end,
 	OnAccept       = function(self)
-		setExpire(self.EditBox:GetText())
+		setExpire((self.editBox or self.EditBox):GetText())
 	end,
 	EditBoxOnEnterPressed = function(self)
-		setExpire(self:GetParent().EditBox:GetText())
+		setExpire(self:GetText()) -- 3.3.5a: self is the edit box
 		self:GetParent():Hide()
 	end,
 	EditBoxOnEscapePressed = function(self)
@@ -169,7 +296,8 @@ StaticPopupDialogs["GIL_EXPIRE"] = {
 
 StaticPopupDialogs["GIL_FILTERRESET"] = {
 
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "|cffffff00%s|cffffffff\n\n"..L["BOX_2"],
 	whileDead      = 1,
 	button1        = L["BOX_4"],
@@ -185,7 +313,8 @@ StaticPopupDialogs["GIL_FILTERRESET"] = {
 
 StaticPopupDialogs["GIL_FILTERREMOVE"] = {
 
-	preferredIndex = STATICPOPUPS_NUMDIALOGS,
+	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout        = 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text           = "|cffffff00%s|cffffffff\n\n"..L["BOX_9"],
 	whileDead      = 1,
 	button1        = L["BOX_10"],
@@ -314,7 +443,9 @@ local function CreateFilterButtons()
 	for count = 1, BUTTON_TOTAL do
 	
 		if V.wowIsClassic == true then
-			FilterScrollButtons[count] = CreateFrame("Button", nil, FilterScrollFrame:GetParent(), "FriendsFrameIgnoreButtonTemplate")
+			-- 3.3.5a: named, otherwise the template's $parentName text became the global "Name"
+			-- (texts below are created unnamed for the same reason; they were global "FontString")
+			FilterScrollButtons[count] = CreateFrame("Button", "GILFilterButton" .. count, FilterScrollFrame:GetParent(), "FriendsFrameIgnoreButtonTemplate")
 		else
 			FilterScrollButtons[count] = CreateFrame("Button", nil, FilterScrollFrame:GetParent(), "IgnoreListButtonTemplate")
 		end
@@ -333,20 +464,20 @@ local function CreateFilterButtons()
 		FilterScrollButtons[count].name:SetWidth(COL_DESC)		
 
 		-- set active style
-		FilterScrollButtons[count].state = FilterScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		FilterScrollButtons[count].state = FilterScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		FilterScrollButtons[count].state:SetPoint("LEFT", FilterScrollButtons[count].name, "RIGHT", 10, 0)
 		FilterScrollButtons[count].state:SetWidth(COL_STATE)
 		FilterScrollButtons[count].state:SetJustifyH("LEFT")
 
 		-- create blocked style
-		FilterScrollButtons[count].blocked = FilterScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		FilterScrollButtons[count].blocked = FilterScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		FilterScrollButtons[count].blocked:SetPoint("LEFT", FilterScrollButtons[count].state, "RIGHT", 6, 0)
 		FilterScrollButtons[count].blocked:SetWidth(COL_BLOCKED)
 		FilterScrollButtons[count].blocked:SetJustifyH("RIGHT")
 		FilterScrollButtons[count].blocked:SetWordWrap(false)
 		
 		-- create filter style
-		FilterScrollButtons[count].filter = FilterScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		FilterScrollButtons[count].filter = FilterScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		FilterScrollButtons[count].filter:SetPoint("LEFT", FilterScrollButtons[count].blocked, "RIGHT", 14, 0)
 		FilterScrollButtons[count].filter:SetWidth(COL_FILTER)
 		FilterScrollButtons[count].filter:SetJustifyH("LEFT")
@@ -395,49 +526,61 @@ local function UpdateBlockButton(idx, count, winSize)
 	local tstamp	= GlobalIgnoreDB.filterBlocked[Tab2BlockFilter][count].t
 	local channel	= GlobalIgnoreDB.filterBlocked[Tab2BlockFilter][count].n
 
-	if not BlockScrollPlayer[idx] then
-		BlockScrollPlayer[idx] = Tab2FrameBlock.Slate:CreateFontString("FontString", "OVERLAY", "GameFontNormal")
+	-- 3.3.5a: FontStrings have no scripts (and cannot own a tooltip); each entry is a
+	-- mouse-enabled row frame holding the player and message texts, with the scripts on the row
+	if not BlockScrollRow[idx] then
+		local row = CreateFrame("Button", "GILBlockRow" .. idx, Tab2FrameBlock.Slate)
+
+		row:EnableMouse(true)
+		row:RegisterForClicks("RightButtonUp")
+		row:SetScript("OnClick", function(self, button)
+			if button == "RightButton" then
+				M.BlockScrollPlayerClick(self.player, button, self.entry)
+			end
+		end)
+		row:SetScript("OnEnter", M.BlockScrollTextOnEnter)
+		row:SetScript("OnLeave", M.BlockScrollTextOnLeave)
+		row:SetScript("OnHide", M.BlockScrollTextOnLeave)
+		row.player = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		row.text   = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		row.player:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+		row.text:SetPoint("TOPLEFT", row.player, "TOPRIGHT", 0, 0)
+
+		BlockScrollRow[idx]    = row
+		BlockScrollPlayer[idx] = row.player
+		BlockScrollText[idx]   = row.text
 	end
+
+	local row = BlockScrollRow[idx]
+
+	row.entry   = count
+	row.tooltip = {t=tstamp,c=channel}
 	
 	BlockScrollPlayer[idx]:Show()
 	BlockScrollPlayer[idx]:SetWidth(200)
 	BlockScrollPlayer[idx]:SetJustifyH("LEFT");
 	BlockScrollPlayer[idx]:SetText(player)
-	BlockScrollPlayer[idx]:SetScript("OnMouseUp", function(self,button)
-		if button == "RightButton" then
-			M.BlockScrollPlayerClick(self, button, count)
-		end
-	end)
-
-	if not BlockScrollText[idx] then
-		BlockScrollText[idx] = Tab2FrameBlock.Slate:CreateFontString("FontString", "OVERLAY", "GameFontNormal")
-	end
 	
 	BlockScrollText[idx]:Show()
-	BlockScrollText[idx]:SetPoint("TOPLEFT", BlockScrollPlayer[idx], "TOPRIGHT", 0, 0)
 	BlockScrollText[idx]:SetWidth(482)
 	BlockScrollText[idx]:SetJustifyH("LEFT");
 	BlockScrollText[idx]:SetText("|cFFFFC0C0" .. text)
 	BlockScrollText[idx]:SetFont(DEFAULT_CHAT_FRAME:GetFont(), 14)
-	BlockScrollText[idx].tooltip = {t=tstamp,c=channel}
-	BlockScrollText[idx]:SetScript("OnEnter", M.BlockScrollTextOnEnter)
-	BlockScrollText[idx]:SetScript("OnLeave", M.BlockScrollTextOnLeave)
-	BlockScrollText[idx]:SetScript("OnHide", M.BlockScrollTextOnLeave)
-	BlockScrollText[idx]:SetScript("OnMouseUp",
-		function(self,button)
-			if button == "RightButton" then
-				M.BlockScrollPlayerClick(BlockScrollPlayer[idx], button, count)
-			end
-		end
-	)
+
+	row:ClearAllPoints()
 
 	if idx == 1 then
-		BlockScrollPlayer[idx]:SetPoint("TOPLEFT", Tab2FrameBlock.Slate, "TOPLEFT", 10, -10)
+		row:SetPoint("TOPLEFT", Tab2FrameBlock.Slate, "TOPLEFT", 10, -10)
 	else
-		BlockScrollPlayer[idx]:SetPoint("TOPLEFT", BlockScrollText[idx - 1], "BOTTOMLEFT", -200, -10)
+		row:SetPoint("TOPLEFT", BlockScrollRow[idx - 1], "BOTTOMLEFT", 0, -10)
 	end
 
 	local oneSize = math.max(BlockScrollText[idx]:GetStringHeight(), BlockScrollPlayer[idx]:GetStringHeight())
+
+	row:SetWidth(682)
+	row:SetHeight(oneSize)
+	row:Show()
+
 	winSize = winSize + oneSize + 10
 
 	return winSize
@@ -449,9 +592,8 @@ function M.UpdateBlockButtons()
 	for count = 1, #BlockScrollPlayer do
 		BlockScrollPlayer[count]:SetText("")
 		BlockScrollText[count]:SetText("")		
-		BlockScrollText[count].tooltip = nil
-		BlockScrollPlayer[count]:Hide()
-		BlockScrollText[count]:Hide()
+		BlockScrollRow[count].tooltip = nil
+		BlockScrollRow[count]:Hide()
 	end
 
 	if GlobalIgnoreDB.filterBlocked[Tab2BlockFilter] then
@@ -500,51 +642,38 @@ function M.BlockScrollPlayerClick(self, button, entry)
 	if not (name and #name>=2) then return end
 	local index = M.hasGlobalIgnored(name)
 	local isIgnored = index and index > 0
-	MenuUtil.CreateContextMenu(UIParent, function(ownerRegion, root)
-		root:CreateTitle(name)
-		root:CreateDivider()
-		if isIgnored then
-			root:CreateButton(L["RCM_4"],
-				function()
-					C_FriendList.DelIgnore(name)
-				end)
-		else
-			root:CreateButton(L["RCM_6"],
-				function()
-					C_FriendList.AddOrDelIgnore(name)
-				end)
-		end
 		
-		--root:CreateDivider()
-		--root:CreateButton("Remove Entry", -- TODO: localization
-		--	function()
-		--		if GlobalIgnoreDB.filterBlocked[Tab2BlockFilter] and GlobalIgnoreDB.filterBlocked[Tab2BlockFilter][entry] then
-		--			RemoveBlockEntry(Tab2BlockFilter, entry)
-	 	--		end
-		--	end)
-		--root:CreateButton("Remove All Entries by Player", -- TODO localization
-		--	function()
-		--		RemoveBlockEntriesByPlayer(Tab2BlockFilter, name)
-		--	end)
+	-- 3.3.5a: MenuUtil.CreateContextMenu does not exist; the same entries through EasyMenu
+	local entries = {}
 		
-		root:CreateDivider()
-		root:CreateButton(L["RCM_15"],
+	if isIgnored then
+		entries[#entries + 1] = { L["RCM_4"],
 			function()
-				GlobalIgnoreDB.filterBlocked[Tab2BlockFilter] = {}
-				GlobalIgnoreDB.filterBlockedLast[Tab2BlockFilter] = 0
-				M.GILUpdateBlockHistory(Tab2BlockFilter)
-			end)
-		root:CreateDivider()
-		root:CreateButton(L["RCM_11"],
+				C_FriendList.DelIgnore(name)
+			end }
+	else
+		entries[#entries + 1] = { L["RCM_6"],
 			function()
-				FilterScrollSelect = Tab2BlockFilter
-				M.FilterScrollEditMenu()
-			end)
-		root:CreateDivider()
-		root:CreateButton(L["RCM_5"],
-			function()
-			end)
-	end)
+				C_FriendList.AddOrDelIgnore(name)
+			end }
+	end
+
+	entries[#entries + 1] = { L["RCM_15"],
+		function()
+			GlobalIgnoreDB.filterBlocked[Tab2BlockFilter] = {}
+			GlobalIgnoreDB.filterBlockedLast[Tab2BlockFilter] = 0
+			M.GILUpdateBlockHistory(Tab2BlockFilter)
+		end }
+	entries[#entries + 1] = { L["RCM_11"],
+		function()
+			FilterScrollSelect = Tab2BlockFilter
+			M.FilterScrollEditMenu()
+		end }
+	entries[#entries + 1] = { L["RCM_5"],
+		function()
+		end }
+
+	ContextMenu(name, entries)
 end
 
 function M.FilterScrollBlockHistory()
@@ -583,45 +712,34 @@ function M.FilterScrollClick(self, button, down)
 	end
 	
 	if button == "RightButton" then	
-		MenuUtil.CreateContextMenu(UIParent,
-			function(ownerRegion, root)
-				root:CreateTitle(L["RCM_10"])
-				root:CreateDivider()
-				root:CreateButton(L["RCM_11"],
-					function()
-						M.FilterScrollEditMenu()
-					end
-				)
-				root:CreateButton(L["RCM_12"],
-					function()
-						ButtonFilterRemove()
-					end
-				)
-				root:CreateDivider()				
-				root:CreateButton(L["RCM_13"] .. " (" .. #GlobalIgnoreDB.filterBlocked[FilterScrollSelect] .. ")",
-					function()
-						M.FilterScrollBlockHistory()
-					end
-				)
-				root:CreateDivider()	
-				root:CreateButton(L["RCM_14"],
-					function()
-						GlobalIgnoreDB.filterCount[FilterScrollSelect] = 0
-						M.GILUpdateChatCount()
-					end
-				)
-				root:CreateButton(L["RCM_15"],
-					function()
-						GlobalIgnoreDB.filterBlocked[FilterScrollSelect] = {}
-						GlobalIgnoreDB.filterBlockedLast[FilterScrollSelect] = 0
-					end
-				)				
-				root:CreateDivider()			
-				root:CreateButton(L["RCM_5"],
-					function()
-					end)
-			end
-		)
+		-- 3.3.5a: MenuUtil.CreateContextMenu does not exist; the same entries through EasyMenu
+		ContextMenu(L["RCM_10"], {
+			{ L["RCM_11"],
+				function()
+					M.FilterScrollEditMenu()
+				end },
+			{ L["RCM_12"],
+				function()
+					ButtonFilterRemove()
+				end },
+			{ L["RCM_13"] .. " (" .. #(GlobalIgnoreDB.filterBlocked[FilterScrollSelect] or {}) .. ")",
+				function()
+					M.FilterScrollBlockHistory()
+				end },
+			{ L["RCM_14"],
+				function()
+					GlobalIgnoreDB.filterCount[FilterScrollSelect] = 0
+					M.GILUpdateChatCount()
+				end },
+			{ L["RCM_15"],
+				function()
+					GlobalIgnoreDB.filterBlocked[FilterScrollSelect] = {}
+					GlobalIgnoreDB.filterBlockedLast[FilterScrollSelect] = 0
+				end },
+			{ L["RCM_5"],
+				function()
+				end },
+		})
 	end
 end
 
@@ -719,7 +837,8 @@ local function CreateIgnoreButtons()
 	for count = 1, BUTTON_TOTAL do
 	
 		if V.wowIsClassic == true then
-			IgnoreScrollButtons[count] = CreateFrame("Button", nil, IgnoreScrollFrame:GetParent(), "FriendsFrameIgnoreButtonTemplate")
+			-- 3.3.5a: named, otherwise the template's $parentName text became the global "Name"
+			IgnoreScrollButtons[count] = CreateFrame("Button", "GILIgnoreButton" .. count, IgnoreScrollFrame:GetParent(), "FriendsFrameIgnoreButtonTemplate")
 		else
 			IgnoreScrollButtons[count] = CreateFrame("Button", nil, IgnoreScrollFrame:GetParent(), "IgnoreListButtonTemplate")
 		end
@@ -738,31 +857,31 @@ local function CreateIgnoreButtons()
 		IgnoreScrollButtons[count].name:SetWidth(COL_NAME)
 
 		-- create server style		
-		IgnoreScrollButtons[count].server = IgnoreScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		IgnoreScrollButtons[count].server = IgnoreScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		IgnoreScrollButtons[count].server:SetPoint("LEFT", IgnoreScrollButtons[count].name, "RIGHT", 0, 0)
 		IgnoreScrollButtons[count].server:SetWidth(COL_SERVER)
 		IgnoreScrollButtons[count].server:SetJustifyH("LEFT")
 		
 		-- create type style
-		IgnoreScrollButtons[count].type = IgnoreScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		IgnoreScrollButtons[count].type = IgnoreScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		IgnoreScrollButtons[count].type:SetPoint("LEFT", IgnoreScrollButtons[count].server, "RIGHT", 0, 0)
 		IgnoreScrollButtons[count].type:SetWidth(COL_TYPE)
 		IgnoreScrollButtons[count].type:SetJustifyH("LEFT")
 		
 		-- create listed style
-		IgnoreScrollButtons[count].listed = IgnoreScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		IgnoreScrollButtons[count].listed = IgnoreScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		IgnoreScrollButtons[count].listed:SetPoint("LEFT", IgnoreScrollButtons[count].type, "RIGHT", -17, 0)
 		IgnoreScrollButtons[count].listed:SetWidth(COL_LISTED)
 		IgnoreScrollButtons[count].listed:SetJustifyH("RIGHT")
 		
 		-- create expire style
-		IgnoreScrollButtons[count].expire = IgnoreScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		IgnoreScrollButtons[count].expire = IgnoreScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		IgnoreScrollButtons[count].expire:SetPoint("LEFT", IgnoreScrollButtons[count].listed, "RIGHT", 3, 0)
 		IgnoreScrollButtons[count].expire:SetWidth(COL_EXPIRE)
 		IgnoreScrollButtons[count].expire:SetJustifyH("RIGHT")
 		
 		-- create note style
-		IgnoreScrollButtons[count].note = IgnoreScrollButtons[count]:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+		IgnoreScrollButtons[count].note = IgnoreScrollButtons[count]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		IgnoreScrollButtons[count].note:SetPoint("LEFT", IgnoreScrollButtons[count].expire, "RIGHT", 13, 0)
 		IgnoreScrollButtons[count].note:SetWidth(COL_NOTES)
 		IgnoreScrollButtons[count].note:SetJustifyH("LEFT")
@@ -792,33 +911,29 @@ function M.IgnoreScrollClick(self, button, down)
 	if button == "RightButton" then	
 		V.nameUI = GlobalIgnoreDB.ignoreList[IgnoreScrollIndex[IgnoreScrollSelect]]
 		
-		MenuUtil.CreateContextMenu(UIParent, function(ownerRegion, root)
-			root:CreateTitle(V.nameUI)
-			root:CreateDivider()
-			root:CreateButton(L["RCM_1"],
+		-- 3.3.5a: MenuUtil.CreateContextMenu does not exist; the same entries through EasyMenu
+		ContextMenu(V.nameUI, {
+			{ L["RCM_1"],
 				function()
 					M.IgnoreScrollDoubleClick()
-				end)
-			root:CreateDivider()
-			root:CreateButton(L["RCM_2"],
+				end },
+			{ L["RCM_2"],
 				function()
 					StaticPopup_Show("GIL_EXPIRE", V.nameUI)
-				end)
-			root:CreateButton(L["RCM_3"],
+				end },
+			{ L["RCM_3"],
 				function()
 					GlobalIgnoreDB.expList[IgnoreScrollIndex[IgnoreScrollSelect]] = 0
 					M.GILUpdateUI()
-				end)
-			root:CreateDivider()
-			root:CreateButton(L["RCM_4"],
+				end },
+			{ L["RCM_4"],
 				function()
 					ButtonIgnoreRemove()
-				end)
-			root:CreateDivider()
-			root:CreateButton(L["RCM_5"],
+				end },
+			{ L["RCM_5"],
 				function()					
-				end)			
-		end)
+				end },
+		})
 	end
 end
 
@@ -1126,6 +1241,12 @@ local function convertLink (text)
 		return "[spell=".. temp.."]"
 	end
 	
+	-- 3.3.5a: recipe links are |Henchant:ID|h (the filter treats them as spells)
+	temp = string.match(text, "|Henchant:(%d+)")
+	if temp then
+		return "[spell=".. temp.."]"
+	end
+
 	temp = string.match(text, "|Htalent:(%d+)")
 	if temp then
 		return "[talent=" .. temp .. "]"
@@ -1189,7 +1310,11 @@ local function CreateUIFrames()
 	-- MAIN FRAME --
 	----------------
 	
-	MainFrame = CreateFrame("Frame", "GIL", UIParent, "PortraitFrameTemplate")
+	-- 3.3.5a: PortraitFrameTemplate does not exist; UIPanelDialogTemplate has a title text
+	-- (.title) and a close button ($parentClose)
+	MainFrame = CreateFrame("Frame", "GIL", UIParent, "UIPanelDialogTemplate")
+
+	tinsert(UISpecialFrames, "GIL") -- 3.3.5a: Escape closes the window
 
 	MainFrame:Hide()
 	
@@ -1202,8 +1327,7 @@ local function CreateUIFrames()
 	MainFrame:RegisterForDrag("LeftButton", "RightButton")
 	MainFrame:SetClampedToScreen(true)
 	
-	MainFrame.title = _G["GILTitleText"]
-	MainFrame.title:SetText("Global Ignore List")
+	MainFrame.title:SetText("Global Ignore List") -- 3.3.5a: the template's own title text
 	
 	MainFrame:SetScript("OnMouseDown",
 		function(self)
@@ -1226,17 +1350,14 @@ local function CreateUIFrames()
 			end
 		end)
 
-	local icon = MainFrame:CreateTexture("$parentIcon", "OVERLAY", nil, -8)
-		
-	icon:SetSize(60, 60)
-	icon:SetPoint("TOPLEFT", -5, 7)
-	icon:SetTexture("Interface\\FriendsFrame\\Battlenet-Portrait")
+	-- 3.3.5a: the portrait is gone (Battlenet-Portrait is not in the 3.3.5a client and the
+	-- dialog frame has no portrait slot)
 	
 	local Tab1Button = CreateFrame("Button", "GILTab1", MainFrame, "CharacterFrameTabButtonTemplate")
 	
 	Tab1Button:SetPoint("TOPLEFT", MainFrame, "BOTTOMLEFT", 20, 1)
 	Tab1Button:SetText(L["TAB_1"])
-	Tab1Button:SetID("1")
+	Tab1Button:SetID(1)
 	
 	Tab1Button:SetScript("OnClick",
 		function(self)
@@ -1252,7 +1373,7 @@ local function CreateUIFrames()
 
 	Tab2Button:SetPoint("LEFT", "GILTab1", "RIGHT", -16, 0)
 	Tab2Button:SetText(L["TAB_2"])
-	Tab2Button:SetID("2")
+	Tab2Button:SetID(2)
 
 	Tab2Button:SetScript("OnClick",
 		function(self)
@@ -1268,7 +1389,7 @@ local function CreateUIFrames()
 	
 	Tab3Button:SetPoint("LEFT", "GILTab2", "RIGHT", -16, 0)
 	Tab3Button:SetText(L["TAB_3"])
-	Tab3Button:SetID("3")
+	Tab3Button:SetID(3)
 
 	Tab3Button:SetScript("OnClick",
 		function(self)
@@ -1284,7 +1405,7 @@ local function CreateUIFrames()
 	-- TAB 1 FRAMES --
 	------------------
 	
-	Tab1Frame = CreateFrame("Frame", "GILFrame1", MainFrame, "InsetFrameTemplate")
+	Tab1Frame = CreateInset("GILFrame1", MainFrame) -- 3.3.5a: no InsetFrameTemplate
 
 	Tab1Frame:SetWidth(WINDOW_WIDTH - 19)
 	Tab1Frame:SetHeight(WINDOW_HEIGHT - WINDOW_OFFSET)
@@ -1314,7 +1435,7 @@ local function CreateUIFrames()
 			FauxScrollFrame_OnVerticalScroll(self, offset, BUTTON_HEIGHT, IgnoreListDrawUpdate)
 		end)
 	
-	Tab1Frame.infotext = Tab1Frame:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+	Tab1Frame.infotext = Tab1Frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	
 	Tab1Frame.infotext:SetWidth(COL_INFOTEXT)
 	Tab1Frame.infotext:SetJustifyH("CENTER")
@@ -1342,7 +1463,7 @@ local function CreateUIFrames()
 	-- TAB 2 FRAMES --
 	------------------	
 	
-	Tab2Frame = CreateFrame("Frame", "GILFrame2", MainFrame, "InsetFrameTemplate")
+	Tab2Frame = CreateInset("GILFrame2", MainFrame) -- 3.3.5a: no InsetFrameTemplate
 	
 	Tab2Frame:SetScript("OnShow",
 		function(self)
@@ -1355,7 +1476,7 @@ local function CreateUIFrames()
 	Tab2Frame:SetHeight(WINDOW_HEIGHT - WINDOW_OFFSET)
 	Tab2Frame:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 8, -84)
 	
-	Tab2Frame.infotext = Tab2Frame:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+	Tab2Frame.infotext = Tab2Frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	
 	Tab2Frame.infotext:SetWidth(COL_INFOTEXT)
 	Tab2Frame.infotext:SetJustifyH("CENTER")
@@ -1433,7 +1554,7 @@ local function CreateUIFrames()
 	-- TAB 2 EDIT FRAMES --
 	-----------------------	
 
-	Tab2FrameEdit = CreateFrame("Frame", "GILFrame2Edit", MainFrame, "InsetFrameTemplate")
+	Tab2FrameEdit = CreateInset("GILFrame2Edit", MainFrame) -- 3.3.5a: no InsetFrameTemplate
 	
 	Tab2FrameEdit:Hide()
 
@@ -1479,30 +1600,36 @@ local function CreateUIFrames()
 	
 	-- WIDGETS
 	
-	local Text = Tab2FrameEdit:CreateFontString("FontString", "OVERLAY", "GameFontNormalLarge")
+	local Text = Tab2FrameEdit:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	Text:SetPoint("TOPLEFT", Tab2FrameEdit, "TOPLEFT", -8, -18)
 	Text:SetWidth(200)
 	Text:SetText("Chat Filter Editor:")
 
-	Tab2FrameEdit.InfoText = Tab2FrameEdit:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+	Tab2FrameEdit.InfoText = Tab2FrameEdit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	
 	Tab2FrameEdit.InfoText:SetWidth(250)
 	Tab2FrameEdit.InfoText:SetJustifyH("RIGHT")
 	Tab2FrameEdit.InfoText:SetPoint("TOPRIGHT", -48 , -24)
-	Tab2FrameEdit.InfoText:SetScript("OnMouseUp", function(self, button)
+
+	-- 3.3.5a: FontStrings have no scripts; an invisible button over the text takes the click
+	Button = CreateFrame("Button", "GILFrame2EditInfoButton", Tab2FrameEdit)
+	Button:SetAllPoints(Tab2FrameEdit.InfoText)
+	Button:SetScript("OnClick", function(self, button)
 		M.FilterScrollBlockHistory()
 	end)
 
 	---
 
-	Button = Tab2FrameEdit:CreateFontString("GILFrame2ActiveText", "OVERLAY", "GameFontHighlight")
+	-- 3.3.5a: UICheckButtonTemplate names its own text $parentText, so a label called
+	-- "GILFrame2ActiveText" was replaced by the checkbox's text and the anchor became circular
+	Button = Tab2FrameEdit:CreateFontString("GILFrame2ActiveLabel", "OVERLAY", "GameFontHighlight")
 	Button:SetPoint("TOPLEFT", Text, "BOTTOMLEFT", 50, -14)
 	Button:SetText("Active:")
 	
 	Button = CreateFrame("CheckButton", "GILFrame2Active", Tab2FrameEdit, "UICheckButtonTemplate")	
-	Button:SetPoint("TOPLEFT", GILFrame2ActiveText, "BOTTOMLEFT", -4, 2)
+	Button:SetPoint("TOPLEFT", GILFrame2ActiveLabel, "BOTTOMLEFT", -4, 2)
 	Button:SetScript("OnShow",  function(self) self:SetChecked(Tab2EditActive == true) end)
-	Button:SetScript("OnClick" ,function(self) Tab2EditActive = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) Tab2EditActive = (self:GetChecked() and true or false) end) 
 
 	Button = Tab2FrameEdit:CreateFontString("GILFrame2EditDescText", "OVERLAY", "GameFontHighlight")
 	Button:SetPoint("TOPLEFT", Text, "BOTTOMLEFT", 110, -14)
@@ -1523,7 +1650,7 @@ local function CreateUIFrames()
 	Button:SetPoint("TOPLEFT", GILFrame2EditDescText, "BOTTOMLEFT", -60, -40)
 	Button:SetText("Filter:")
 		
-	Button = CreateFrame("ScrollFrame", "GILFrame2EditFilterField", Tab2FrameEdit, "InputScrollFrameTemplate")
+	Button = CreateInputScroll("GILFrame2EditFilterField", Tab2FrameEdit) -- 3.3.5a: no InputScrollFrameTemplate
 	Button:SetPoint("TOPLEFT", GILFrame2EditFilterText, "BOTTOMLEFT", 6, -8)
 	Button:SetSize(618, 60)
 	Button.EditBox:SetAutoFocus(false)
@@ -1565,14 +1692,14 @@ local function CreateUIFrames()
 	Button:SetJustifyH("LEFT")	
 	Button:SetText("")
 	
-	Button = CreateFrame("ScrollFrame", "GILFrame2EditTestField", Tab2FrameEdit, "InputScrollFrameTemplate")
+	Button = CreateInputScroll("GILFrame2EditTestField", Tab2FrameEdit) -- 3.3.5a: no InputScrollFrameTemplate
 	Button:SetPoint("TOPLEFT", GILFrame2EditTestText, "BOTTOMLEFT", 6, -8)
 	Button:SetSize(400, 60)
 	Button.EditBox:SetAutoFocus(false)
 	Button.EditBox:SetMaxLetters(500)
 	Button.EditBox:SetWidth(355)
 	Button.EditBox:SetFontObject("ChatFontNormal")
-	Button.EditBox:SetScript("OnTextChanged", function(self) GILFrame2EditTestResult:SetText("") end)
+	Button.EditBox:HookScript("OnTextChanged", function(self) GILFrame2EditTestResult:SetText("") end) -- 3.3.5a: keep the scrolling handler
 	
 	Button = CreateFrame("Button", "GILFrame2EditTestHelp", Tab2FrameEdit, "UIPanelButtonTemplate")
 	Button:SetSize(38, 18)
@@ -1667,7 +1794,7 @@ local function CreateUIFrames()
 	-- TAB 2 BLOCK HISTORY FRAMES --
 	--------------------------------
 
-	Tab2FrameBlock = CreateFrame("Frame", "GILFrame2Block", MainFrame, "InsetFrameTemplate")
+	Tab2FrameBlock = CreateInset("GILFrame2Block", MainFrame) -- 3.3.5a: no InsetFrameTemplate
 	
 	Tab2FrameBlock:Hide()
 
@@ -1675,7 +1802,7 @@ local function CreateUIFrames()
 	Tab2FrameBlock:SetHeight(WINDOW_HEIGHT - WINDOW_OFFSET)
 	Tab2FrameBlock:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 8, -84)
 	
-	Tab2FrameBlock.InfoText = Tab2FrameBlock:CreateFontString("FontString", "OVERLAY", "GameFontHighlight")
+	Tab2FrameBlock.InfoText = Tab2FrameBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	
 	Tab2FrameBlock.InfoText:SetWidth(COL_INFOTEXT)
 	Tab2FrameBlock.InfoText:SetJustifyH("CENTER")
@@ -1734,7 +1861,7 @@ local function CreateUIFrames()
 	Tab2FrameBlock.ScrollBar:SetPoint("BOTTOM", Tab2FrameBlock.ScrollDown, "TOP", 0, 2);
  
 	Tab2FrameBlock.ScrollFrame:SetScrollChild(Tab2FrameBlock.Slate);	
-	Tab2FrameBlock.ScrollFrame:SetClipsChildren(true)
+	-- 3.3.5a: no SetClipsChildren (a ScrollFrame clips its scroll child itself)
 	Tab2FrameBlock.ScrollFrame:SetAllPoints(Tab2FrameBlock);
 	
 	M.UpdateBlockButtons()
@@ -1743,7 +1870,7 @@ local function CreateUIFrames()
 	-- TAB 3 FRAMES --
 	------------------	
 	
-	Tab3Frame = CreateFrame("ScrollFrame", "GILFrame3", MainFrame, "InsetFrameTemplate")
+	Tab3Frame = CreateInset("GILFrame3", MainFrame) -- 3.3.5a: no InsetFrameTemplate (and a plain frame holds the scroll frame)
 	Tab3Frame:Hide()
 
 	Tab3Frame:SetWidth(WINDOW_WIDTH - 19)
@@ -1769,16 +1896,20 @@ local function CreateUIFrames()
 	Tab3Frame.ScrollBar:SetPoint("BOTTOM", Tab3Frame.ScrollDown, "TOP", 0, 2);
  
 	Tab3Frame.ScrollFrame:SetScrollChild(Tab3Frame.Slate);	
-	Tab3Frame.ScrollFrame:SetClipsChildren(true);
+	-- 3.3.5a: no SetClipsChildren (a ScrollFrame clips its scroll child itself)
 	Tab3Frame.ScrollFrame:SetAllPoints(Tab3Frame);
  
 	-- Plot options on our scrolling slate
 	
-	Tab3Frame.Slate:SetSize(Tab3Frame:GetWidth(), (Tab3Frame:GetHeight() + 120));
+	-- 3.3.5a: the options reach about 540 pixels down with the 3.3.5a check buttons; a slate only
+	-- 120 pixels taller than the view left the last options out of scroll range
+	Tab3Frame.Slate:SetSize(Tab3Frame:GetWidth(), (Tab3Frame:GetHeight() + (V.wowIs335 and 260 or 120)));
 	
 	-- Ignore options
+	-- 3.3.5a: GetChecked() returns 1/nil and the options are tested with "== true", so every
+	-- checkbox below stores "GetChecked() and true or false" (it stored 1: ticking turned it off)
  
-	Text = Tab3Frame.Slate:CreateFontString("FontString", "OVERLAY", "GameFontNormalLarge")
+	Text = Tab3Frame.Slate:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	Text:SetPoint("TOPLEFT", Tab3Frame.Slate, "TOPLEFT", 16, -10)
 	Text:SetWidth(200)
 	Text:SetJustifyH("LEFT");
@@ -1789,56 +1920,70 @@ local function CreateUIFrames()
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_1"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.asknote == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.asknote = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.asknote = (self:GetChecked() and true or false) end) 
 	
 	Button = CreateFrame("CheckButton", "GILFrame3SameServer", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3AskNote, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_4"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.sameserver == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.sameserver = (self:GetChecked() or false) end) 
+
+	if V.wowIs335 then
+		-- 3.3.5a: always on (a single-realm server cannot ignore players of other realms)
+		Button:Disable()
+		_G[Button:GetName().."Text"]:SetFontObject("GameFontDisable")
+		-- a disabled button gets no OnEnter/OnLeave on 3.3.5a unless this is set
+		Button:SetMotionScriptsWhileDisabled(true)
+		Button:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(L["OPT_29"], 1, 1, 1, 1, 1)
+			GameTooltip:Show()
+		end)
+		Button:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+	end
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.sameserver = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3SameFaction", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3SameServer, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_27"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.samefaction == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.samefaction = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.samefaction = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3TrackChanges", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3SameFaction, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_6"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.trackChanges == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.trackChanges = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.trackChanges = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3SyncMsgs", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3TrackChanges, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_26"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.chatmsg == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.chatmsg = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.chatmsg = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3ShowDeclines", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3SyncMsgs, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_28"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.showDeclines == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.showDeclines = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.showDeclines = (self:GetChecked() and true or false) end) 
 	
 	Button = CreateFrame("CheckButton", "GILFrame3SyncWarning", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3ShowDeclines, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_18"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.showWarning == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.showWarning = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.showWarning = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3IgnoreResponse", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3SyncWarning, "BOTTOMLEFT", 0, 4)
 	_G[Button:GetName().."Text"]:SetText(L["OPT_24"])
 	_G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.ignoreResponse == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.ignoreResponse = (self:GetChecked() or false) end) 	
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.ignoreResponse = (self:GetChecked() and true or false) end) 	
 
 	Button = Tab3Frame.Slate:CreateFontString("GILFrame3ExpText", "OVERLAY", "GameFontHighlight")
 	Button:SetPoint("TOPLEFT", GILFrame3IgnoreResponse, "BOTTOMLEFT", 6, -4)
@@ -1855,7 +2000,7 @@ local function CreateUIFrames()
 
 	-- Chat filter options
 	
-	Text = Tab3Frame.Slate:CreateFontString("FontString", "OVERLAY", "GameFontNormalLarge")
+	Text = Tab3Frame.Slate:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	Text:SetPoint("TOPLEFT", GILFrame3ExpText, "BOTTOMLEFT", -18, -20)
 	Text:SetWidth(200)
 	Text:SetJustifyH("LEFT");
@@ -1866,21 +2011,21 @@ local function CreateUIFrames()
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_7"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.spamFilter == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.spamFilter = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.spamFilter = (self:GetChecked() and true or false) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3InvertFilter", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", GILFrame3EnableFilter, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_10"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.invertSpam == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.invertSpam = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.invertSpam = (self:GetChecked() and true or false) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3UpdateFilter", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", GILFrame3InvertFilter, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_11"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.autoUpdate == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.autoUpdate = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.autoUpdate = (self:GetChecked() and true or false) end)
 
 	-- Flood Dropdown 
 	
@@ -1898,48 +2043,45 @@ local function CreateUIFrames()
 		end
 	end
 	
-	local Drop = CreateFrame("DropdownButton", "GILFrame3FloodMenu", Tab3Frame.Slate, "WowStyle1DropdownTemplate")
-	Drop:SetDefaultText(getFloodType())
-	Drop:SetPoint("TOPLEFT", GILFrame3FloodText, "TOPRIGHT", 0, 6)
-	Drop:SetWidth(180)
-
-	Drop:SetupMenu(function(self, root)
-		root:CreateButton(L["OPT_21"], function() GlobalIgnoreDB.floodFilter = 0 self:SetDefaultText(getFloodType()) end)
-		root:CreateButton(L["OPT_22"], function() GlobalIgnoreDB.floodFilter = 1 self:SetDefaultText(getFloodType()) end)
-		root:CreateButton(L["OPT_23"], function() GlobalIgnoreDB.floodFilter = 2 self:SetDefaultText(getFloodType()) end)
-	end)
+	-- 3.3.5a: no DropdownButton/WowStyle1DropdownTemplate; a UIDropDownMenuTemplate dropdown
+	local Drop = CreateChoice("GILFrame3FloodMenu", Tab3Frame.Slate, 160,
+		{ { L["OPT_21"], 0 }, { L["OPT_22"], 1 }, { L["OPT_23"], 2 } },
+		getFloodType,
+		function(value) GlobalIgnoreDB.floodFilter = value end)
+	Drop:SetPoint("TOPLEFT", GILFrame3FloodText, "TOPRIGHT", -12, 8)
+	Drop:SetScript("OnShow", function(self) UIDropDownMenu_SetText(self, getFloodType()) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3SkipGuild", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", Text, "BOTTOMLEFT", 450, -6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_12"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.skipGuild == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipGuild = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipGuild = (self:GetChecked() and true or false) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3SkipParty", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", GILFrame3SkipGuild, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_13"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.skipParty == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipParty = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipParty = (self:GetChecked() and true or false) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3SkipPrivate", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", GILFrame3SkipParty, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_14"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.skipPrivate == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipPrivate = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipPrivate = (self:GetChecked() and true or false) end)
 
 	Button = CreateFrame("CheckButton", "GILFrame3SkipYourself", Tab3Frame.Slate, "UICheckButtonTemplate")
 	Button:SetPoint("TOPLEFT", GILFrame3SkipPrivate, "BOTTOMLEFT", 0, 6)
 	 _G[Button:GetName().."Text"]:SetText(L["OPT_19"])
 	 _G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.skipYourself == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipYourself = (self:GetChecked() or false) end)
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.skipYourself = (self:GetChecked() and true or false) end)
 	
 	-- UI Options
 	
-	Text = Tab3Frame.Slate:CreateFontString("FontString", "OVERLAY", "GameFontNormalLarge")
+	Text = Tab3Frame.Slate:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	Text:SetWidth(200)
 	Text:SetPoint("TOPLEFT", GILFrame3UpdateFilter, "BOTTOMLEFT", -10, -40)
 	Text:SetJustifyH("LEFT");
@@ -1950,40 +2092,42 @@ local function CreateUIFrames()
 	_G[Button:GetName().."Text"]:SetText(L["OPT_2"])
 	_G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.openWithFriends == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.openWithFriends = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.openWithFriends = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3HackUnit", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3OpenUI, "BOTTOMLEFT", 0, 4)
-	_G[Button:GetName().."Text"]:SetText(L["OPT_16"])
+	_G[Button:GetName().."Text"]:SetText(V.wowIs335 and L["OPT_16_335"] or L["OPT_16"]) -- 3.3.5a: no reload needed
 	_G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.useUnitHacks == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.useUnitHacks = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.useUnitHacks = (self:GetChecked() and true or false) end) 
 
 	Button = CreateFrame("CheckButton", "GILFrame3HackLFG", Tab3Frame.Slate, "UICheckButtonTemplate")	
 	Button:SetPoint("TOPLEFT", GILFrame3HackUnit, "BOTTOMLEFT", 0, 4)
 	_G[Button:GetName().."Text"]:SetText(L["OPT_17"])
 	_G[Button:GetName().."Text"]:SetFontObject("GameFontHighlight")
 	Button:SetScript("OnShow",  function(self) self:SetChecked(GlobalIgnoreDB.useLFGHacks == true) end)
-	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.useLFGHacks = (self:GetChecked() or false) end) 
+	Button:SetScript("OnClick" ,function(self) GlobalIgnoreDB.useLFGHacks = (self:GetChecked() and true or false) end)
+
+	-- 3.3.5a: there is no LFG list tool, so its option is hidden
+	local strataAnchor = GILFrame3HackLFG
+
+	if V.wowIs335 then
+		GILFrame3HackLFG:Hide()
+		strataAnchor = GILFrame3HackUnit
+	end
 	
 	-- Strata dropdown
 	
 	Button = Tab3Frame.Slate:CreateFontString("GILFrame3StrataText", "OVERLAY", "GameFontHighlight")
-	Button:SetPoint("TOPLEFT", GILFrame3HackLFG, "BOTTOMLEFT", 6, -4)
+	Button:SetPoint("TOPLEFT", strataAnchor, "BOTTOMLEFT", 6, -4)
 	Button:SetText(L["OPT_25"])
 	
-	local Drop = CreateFrame("DropdownButton", "GILFrame3StrataMenu", Tab3Frame.Slate, "WowStyle1DropdownTemplate")
-	Drop:SetDefaultText(getFrameStrata())
-	Drop:SetPoint("TOPLEFT", GILFrame3StrataText, "TOPRIGHT", 0, 6)
-	Drop:SetWidth(100)
-
-	Drop:SetupMenu(function(self, root)
-		root:CreateButton("LOW", function() GlobalIgnoreDB.frameStrata = 0 self:SetDefaultText(getFrameStrata()) end)
-		root:CreateButton("MEDIUM", function() GlobalIgnoreDB.frameStrata = 1 self:SetDefaultText(getFrameStrata()) end)
-		root:CreateButton("HIGH", function() GlobalIgnoreDB.frameStrata = 2 self:SetDefaultText(getFrameStrata()) end)
-		root:CreateButton("DIALOG", function() GlobalIgnoreDB.frameStrata = 3 self:SetDefaultText(getFrameStrata()) end)
-		
-	end)
+	-- 3.3.5a: no DropdownButton/WowStyle1DropdownTemplate; a UIDropDownMenuTemplate dropdown
+	local Drop = CreateChoice("GILFrame3StrataMenu", Tab3Frame.Slate, 100,
+		{ { "LOW", 0 }, { "MEDIUM", 1 }, { "HIGH", 2 }, { "DIALOG", 3 } },
+		getFrameStrata,
+		function(value) GlobalIgnoreDB.frameStrata = value end)
+	Drop:SetPoint("TOPLEFT", GILFrame3StrataText, "TOPRIGHT", -12, 8)
 
 	----------
 	-- SHOW --
@@ -2011,7 +2155,12 @@ local function friendsShow()
 	
 	if MainFrame ~= nil then
 		MainFrame:ClearAllPoints()
-		MainFrame:SetPoint("TOPLEFT", FriendsFrame, "TOPRIGHT", 12, -10)		
+		-- 3.3.5a: the FriendsFrame art ends about 30 pixels left of its right edge
+		if V.wowIs335 then
+			MainFrame:SetPoint("TOPLEFT", FriendsFrame, "TOPRIGHT", -30, -12)
+		else
+			MainFrame:SetPoint("TOPLEFT", FriendsFrame, "TOPRIGHT", 12, -10)
+		end
 		MainFrame:Show()
 	end
 end
@@ -2033,28 +2182,53 @@ FriendsFrame:HookScript("OnHide", friendsHide)
 -- HOOK INTO CHAT LINKS --
 --------------------------
 
-Blizzard_ChatEdit_InsertLink = ChatEdit_InsertLink
+-- 3.3.5a: a post-hook instead of replacing ChatEdit_InsertLink (and the global
+-- Blizzard_ChatEdit_InsertLink): replacing it tainted every shift-click caller.  When one of
+-- GIL's boxes has the focus no chat edit box is active, so Blizzard's function inserted nothing.
+--
+-- The post-hook cannot make ChatEdit_InsertLink return true as the override did, so a
+-- shift-click on a stack whose link GIL took went on to open the split-stack frame as well
+-- (ContainerFrameItemButton_OnModifiedClick, MerchantItemButton_OnModifiedClick: SPLITSTACK is
+-- SHIFT too).  GIL closes that frame again when it took the link in the same click; the flag
+-- only lives until the next frame.
 
-function ChatEdit_InsertLink (text)
+local linkTaken = false
+local linkReset = CreateFrame("Frame")
+
+linkReset:Hide()
+linkReset:SetScript("OnUpdate", function(self)
+	linkTaken = false
+	self:Hide()
+end)
+
+local function TookLink ()
+	linkTaken = true
+	linkReset:Show()
+end
+
+hooksecurefunc("ChatEdit_InsertLink", function(text)
 
 	if text and GILFrame2EditLinkField and GILFrame2EditLinkField:HasFocus() then
 		GILFrame2EditLinkField:SetText(text)
 		GILFrame2EditLinkField:Show()
-		
-		return true	
+		TookLink()
 	elseif text and GILFrame2EditFilterField and GILFrame2EditFilterField.EditBox:HasFocus() then
 		GILFrame2EditFilterField.EditBox:Insert(convertLink(text))
 		GILFrame2EditFilterField.EditBox:Show()
-		
-		return true
+		TookLink()
 	elseif text and GILFrame2EditTestField and GILFrame2EditTestField.EditBox:HasFocus() then
 		GILFrame2EditTestField.EditBox:Insert(text)
 		GILFrame2EditTestField.EditBox:Show()
-		
-		return true
-	else	
-		return Blizzard_ChatEdit_InsertLink(text)
+		TookLink()
 	end
+end)
+
+if V.wowIs335 and OpenStackSplitFrame then
+	hooksecurefunc("OpenStackSplitFrame", function()
+		if linkTaken and StackSplitFrame and StackSplitFrame:IsShown() then
+			StackSplitFrame:Hide()
+		end
+	end)
 end
 
 ---------------------

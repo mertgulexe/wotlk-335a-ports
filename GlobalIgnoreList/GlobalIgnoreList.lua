@@ -6,6 +6,22 @@ local L = addon.L -- localization entries
 local V = addon.V -- shared variables
 local M = addon.M -- shared methods
 
+-- 3.3.5a: private friend list/party tables (GIL_Compat335.lua) and file-local replacements for
+-- the modern group/time API.  No globals: other 3.3.5a addons use these names to detect the client
+-- (and a global shim another addon made is not used: it may return 1/nil instead of booleans).
+local wow335			= (V.wowIs335 == true)
+local C_FriendList		= addon.FL or C_FriendList
+local C_PartyInfo		= addon.PI or C_PartyInfo
+local GetServerTime		= (not wow335 and GetServerTime) or time
+local IsInRaid			= (not wow335 and IsInRaid) or function() return GetNumRaidMembers() > 0 end
+local IsInGroup			= (not wow335 and IsInGroup) or function() return (GetNumRaidMembers() > 0) or (GetNumPartyMembers() > 0) end
+local GetNumGroupMembers = (not wow335 and GetNumGroupMembers) or function()
+	if GetNumRaidMembers() > 0 then
+		return GetNumRaidMembers()
+	end
+	return GetNumPartyMembers()
+end
+
 V.GIL_Loaded			= false
 V.GIL_SyncOK			= false
 V.GIL_SyncTried			= false
@@ -45,6 +61,9 @@ local MSG_LOGON			= ERR_FRIEND_ONLINE_SS:gsub("|Hplayer:%%s|h%[%%s%]|h", "|Hplay
 local filterLoginMsgs   = true
 local gilFloodData		= {}
 local gilFloodSize		= 50
+local lastReplyTime		= {}	-- 3.3.5a: per sender, whisper auto-reply rate limit
+local deferredSync		= nil	-- 3.3.5a: one-shot sync waiting for IGNORELIST_UPDATE
+local deferredTries		= 0
 
 local BlizzardAddIgnore			= nil
 local BlizzardDelIgnore			= nil
@@ -447,8 +466,16 @@ function M.ResetSpamFilters()
 end
 
 local function ResetBlizzardIgnore()
+	-- 3.3.5a: no DelIgnoreByIndex, and the list only shrinks when the server answers:
+	-- collect the names first, then remove them by name
+	local names = {}
+
 	for count = 1, C_FriendList.GetNumIgnores() do
-		BlizzardDelIgnoreByIndex(count)
+		names[#names + 1] = C_FriendList.GetIgnoreName(count)
+	end
+
+	for count = 1, #names do
+		BlizzardDelIgnore(names[count])
 	end
 end
 
@@ -492,7 +519,7 @@ local function ResetIgnoreDB()
 		useUnitHacks		= true,
 		useLFGHacks			= true,
 		ignoreResponse		= true,
-		frameStrata			= 3,
+		frameStrata			= (V.wowIs335 and 2 or 3), -- 3.3.5a: HIGH (see below)
 		floodFilter			= 0, -- 0=None, 1=Name+Server+Message, 2=Message
 		showDeclines		= true
 	}
@@ -530,20 +557,75 @@ local function isValidList()
 	return true
 end
 
+-- 3.3.5a: arm one sync for the next IGNORELIST_UPDATE.  The contact list arrives shortly after
+-- login and its names can read "Unknown" until the server has resolved them.  A sync deferred
+-- in the startup window (at = its end) also runs when that window ends: after a /reload the
+-- client already holds the list and need not fire IGNORELIST_UPDATE again.
+local deferTimer = nil
+
+local function deferSync (silent, at)
+
+	if deferredTries >= 5 then return end
+
+	deferredTries = deferredTries + 1
+	deferredSync  = { silent = silent, at = at }
+
+	if at == nil then return end
+
+	if deferTimer == nil then
+		deferTimer = CreateFrame("Frame")
+		deferTimer:SetScript("OnUpdate", function(self)
+			local d = deferredSync
+
+			if d == nil or d.at == nil then
+				self:Hide()
+				return
+			end
+
+			if GetTime() < d.at then return end
+
+			deferredSync = nil
+			self:Hide()
+
+			if V.GIL_Loaded == true and V.GIL_SyncOK == false then
+				M.SyncIgnoreList(d.silent)
+			end
+		end)
+	end
+
+	deferTimer:Show()
+end
+
 function M.SyncIgnoreList (silent)
 
 	if silent == nil then
 		silent = false
 	end
 	
+	-- 3.3.5a: wait until the server list has arrived (see deferSync).  A sync is never started
+	-- by IGNORELIST_UPDATE itself, because the sync's own calls fire that event.
+	if V.wowIs335 and V.ignoreListSeen ~= true and GetTime() < loadedTime + 15 then
+		deferSync(silent, loadedTime + 15)
+		return
+	end
+
 	M.ShowMsg(L["LOAD_4"])	
 	
 	if isValidList() == false then
 		M.debugMsg ("Invalid ignore list")	
+
+		if V.wowIs335 then
+			deferSync(silent)
+		end
+
 		return
 	end
 	
 	V.GIL_InSync = true
+
+	-- 3.3.5a: the server answers after this function has returned; the CHAT_MSG_SYSTEM filter
+	-- keeps those replies quiet (when sync messages are off) until this time
+	V.quietUntil = GetTime() + 10
 	
 	-- import ignore list if first time sync
 	
@@ -587,36 +669,55 @@ function M.SyncIgnoreList (silent)
 	end	
 	
 	-- first remove expired entries and fix any detected broken entries
+	-- 3.3.5a: walk the list backwards and remove entries directly.  The original restarted the
+	-- scan after every expiry and never ended for an expired NPC or server entry (the DelIgnore
+	-- wrapper only finds players, so the entry stayed: client freeze whenever defexpire > 0), and
+	-- it skipped the entry after a removed blank one.
 	
-	local count = 0
+	for count = #GlobalIgnoreDB.ignoreList, 1, -1 do
 		
-	while count < #GlobalIgnoreDB.dateList do
-		count = count + 1
+		local entry = GlobalIgnoreDB.ignoreList[count]
+		local tmp   = M.removeServer(entry, true)
 		
-		local tmp = M.removeServer(GlobalIgnoreDB.ignoreList[count], true)
-		if tmp == "" then
+		if tmp == nil or tmp == "" then
 			M.debugMsg ("Blank character name found in position " .. count);
 			RemoveFromList(count)
-		end
+		elseif (GlobalIgnoreDB.expList[count] or 0) > 0 and M.daysFromToday(GlobalIgnoreDB.dateList[count]) >= GlobalIgnoreDB.expList[count] then
+			M.debugMsg ("Removing character "..entry.." due to expiration date")
 		
-		if GlobalIgnoreDB.expList[count] > 0 and M.daysFromToday(GlobalIgnoreDB.dateList[count]) >= GlobalIgnoreDB.expList[count] then
-			local name = M.addServer(GlobalIgnoreDB.ignoreList[count])
-			M.debugMsg ("Removing character "..(name or "nil").." due to expiration date")
-			C_FriendList.DelIgnore(name)
-			count = 0
+			if GlobalIgnoreDB.typeList[count] == "player" and hasIgnored(entry) > 0 then
+				BlizzardDelIgnore(M.removeServer(entry))
+			end
+
+			if silent == false then
+				M.ShowMsg(format(L["REM_1"], entry))
+			end
+
+			RemoveFromList(count)
+			V.needSorted = true
 		end
 	end
 	
 	-- find account ignores that aren't on global ignore and do things
+	-- 3.3.5a: read the server list first; it only changes when the server answers
+
+	local serverNames = {}
 	
 	for count = 1, C_FriendList.GetNumIgnores() do
+		serverNames[count] = C_FriendList.GetIgnoreName(count) or ""
+	end
+
+	for count = 1, #serverNames do
 	
 		local skipRemove = false
-		local name       = C_FriendList.GetIgnoreName(count)
+		local name       = serverNames[count]
 
 		if (name == "") then
-			M.debugMsg("Removing blank name on Blizzard ignore list")
-			BlizzardDelIgnoreByIndex(count)
+			-- 3.3.5a: a blank entry cannot be removed (DelIgnore only takes a name)
+			if not V.wowIs335 then
+				M.debugMsg("Removing blank name on Blizzard ignore list")
+				BlizzardDelIgnoreByIndex(count)
+			end
 		end
 		
 		name = M.removeServer(name, true)
@@ -624,7 +725,7 @@ function M.SyncIgnoreList (silent)
 		--print ("DEBUG got name=" .. name)
 		
 		if (name ~= nil and name ~= "" and name ~= _G.UNKNOWN) then
-			name = M.Proper(M.addServer(C_FriendList.GetIgnoreName(count)))
+			name = M.Proper(M.addServer(serverNames[count]))
 			
 			local globIdx = M.hasGlobalIgnored(name)
 
@@ -638,7 +739,9 @@ function M.SyncIgnoreList (silent)
 					if idx == 0 then
 						M.debugMsg ("New player "..name.. " found on character, adding to Global Ignore List")
 						skipRemove = true
-						C_FriendList.AddIgnore(name, true)
+						-- 3.3.5a: the player is already on the server list; add to GIL only
+						-- (the AddIgnore wrapper would send a second AddIgnore)
+						M.GILTrackAdd(name, true)
 					end
 				end
 			
@@ -650,7 +753,8 @@ function M.SyncIgnoreList (silent)
 				
 					M.debugMsg ("Removing "..name.." from character ignore because they are not on Global Ignore List")
 				
-					BlizzardDelIgnoreByIndex (hasIgnored(name))
+					-- 3.3.5a: by name; there is no DelIgnoreByIndex
+					BlizzardDelIgnore(M.removeServer(name))
 				end
 			else
 				GlobalIgnoreDB.syncInfo[globIdx] = {}
@@ -694,11 +798,14 @@ function M.SyncIgnoreList (silent)
 				
 				--print("DEBUG processing: ".. name .. " ignored? ".. hasIgnored(name));
 				
-				if hasIgnored(name) == 0 then
+				-- 3.3.5a: a name GIL has just sent is not on the list until the server answers
+				if hasIgnored(name) == 0 and not (V.wowIs335 and M.isPending(name)) then
 					local ok = (GlobalIgnoreDB.factionList[key] == faction) or (GlobalIgnoreDB.samefaction == false)
 
 					if ok then
-						ok = (isServerMatch(V.serverName, M.getServer(name))) or (GlobalIgnoreDB.sameserver == false)
+						-- 3.3.5a: a single-realm server only takes own-realm players, whatever
+						-- the "same server" option says (other realms stay GIL-only)
+						ok = (isServerMatch(V.serverName, M.getServer(name))) or (GlobalIgnoreDB.sameserver == false and not V.wowIs335)
 					end
 					
 					if ok then
@@ -712,7 +819,8 @@ function M.SyncIgnoreList (silent)
 							M.ShowMsg (format(L["SYNC_2"], name))
 						end					
 								
-						BlizzardAddIgnore(name)
+						-- 3.3.5a: was BlizzardAddIgnore("Name-Realm"); the server wants the plain name
+						BlizzardAddIgnore(M.removeServer(name))
 					end
 				end
 			end
@@ -734,15 +842,16 @@ function M.PruneIgnoreList (days, doit)
 	end
 
 	local targets = 0
-	local count   = 0
 	
-	while count < #GlobalIgnoreDB.dateList do
-		count = count + 1
+	-- 3.3.5a: walk the list backwards and remove entries directly (the original restarted the
+	-- scan after every removal and looped forever when a removal did not shrink the list)
+
+	for count = #GlobalIgnoreDB.ignoreList, 1, -1 do
 	
 		if M.daysFromToday(GlobalIgnoreDB.dateList[count]) >= days then
 			targets = targets + 1
 			
-			local name = M.addServer(GlobalIgnoreDB.ignoreList[count])
+			local name = GlobalIgnoreDB.ignoreList[count]
 					
 			--if doit ~= true then
 			--	M.ShowMsg("Prune will remove: "..name)
@@ -750,14 +859,21 @@ function M.PruneIgnoreList (days, doit)
 			
 			if doit == true then
 				if GlobalIgnoreDB.typeList[count] == "player" then
-					C_FriendList.DelIgnore(name)
-				else
-					RemoveFromList(count)
+					M.ShowMsg(format(L["REM_1"], name))
+
+					if hasIgnored(name) > 0 then
+						BlizzardDelIgnore(M.removeServer(name))
+					end
 				end
 
-				count = 0
+				RemoveFromList(count)
 			end
 		end
+	end
+
+	if doit == true and targets > 0 then
+		V.needSorted = true
+		M.GILUpdateUI(true)
 	end
 	
 	return targets
@@ -827,6 +943,9 @@ local function ApplicationStartup(self)
 	-- When adding new defaults, make sure to assign a unique filter ID that has never been used before
 
 	faction = UnitFactionGroup("player")
+
+	-- 3.3.5a: every key is Proper'd; recompute now that the player name is certainly known
+	V.playerName = M.Proper(M.addServer(UnitName("player")))
 		
 	if GlobalIgnoreDB == nil then	
 		ResetIgnoreDB()
@@ -959,7 +1078,9 @@ local function ApplicationStartup(self)
 	end
 
 	if GlobalIgnoreDB.frameStrata == nil then
-		GlobalIgnoreDB.frameStrata = 3
+		-- 3.3.5a: HIGH by default.  StaticPopups are DIALOG frames too, and the window's rows
+		-- (higher frame levels) covered the buttons of GIL's own popups.
+		GlobalIgnoreDB.frameStrata = (V.wowIs335 and 2 or 3)
 	end
 
 	if GlobalIgnoreDB.syncList then
@@ -1033,7 +1154,37 @@ local function ApplicationStartup(self)
 		end
 	end
 
+	-- 3.3.5a: CheckButton:GetChecked() returns 1/nil, and the code tests "== true"; an option
+	-- that was saved as 1 means "on"
+	local booleanOptions = { "chatmsg", "sameserver", "samefaction", "openWithFriends", "attachFriends",
+		"trackChanges", "spamFilter", "invertSpam", "autoIgnore", "autoUpdate", "skipGuild", "skipParty",
+		"skipPrivate", "skipYourself", "showIgnoreDebug", "showWarning", "useUnitHacks", "useLFGHacks",
+		"ignoreResponse", "showDeclines", "asknote" }
+
+	for count = 1, #booleanOptions do
+		if GlobalIgnoreDB[booleanOptions[count]] == 1 then
+			GlobalIgnoreDB[booleanOptions[count]] = true
+		end
+	end
+
+	for count = 1, #GlobalIgnoreDB.filterActive do
+		if GlobalIgnoreDB.filterActive[count] == 1 then
+			GlobalIgnoreDB.filterActive[count] = true
+		end
+	end
+
+	-- 3.3.5a: a single-realm server cannot ignore players of other realms, so only same-server
+	-- players can be synchronized (see M.SyncIgnoreList)
+	if V.wowIs335 then
+		GlobalIgnoreDB.sameserver = true
+	end
+
 	loadedTime = GetTime()
+
+	-- 3.3.5a: after a /reload the client already holds the server list (no IGNORELIST_UPDATE)
+	if V.wowIs335 and C_FriendList.GetNumIgnores() > 0 then
+		V.ignoreListSeen = true
+	end
 		
 	--M.SyncIgnoreList(GlobalIgnoreDB.chatmsg == false)
 		
@@ -1110,22 +1261,24 @@ local function EventHandler (self, event, sender, ...)
 		gotEntering = true
 	end
 
-	if event == "GROUP_ROSTER_UPDATE" then
+	-- 3.3.5a: there is no GROUP_ROSTER_UPDATE; party and raid changes have their own events
+	if (event == "GROUP_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and V.GIL_Loaded == true then
 		if gotGroup == true and not IsInGroup() then
 			gotGroup     = false
 			groupWarning = {}
-		elseif gotGroup == false and IsInGroup() then
+		elseif IsInGroup() then
+			-- 3.3.5a: also check the group that was just joined (the original only noted it)
 			gotGroup = true			
-		elseif gotGroup == true then
+
 			local prefix  = IsInRaid() and "raid" or "party"
 			local name    = ""
 			local doWarn  = false
 			
 			for count = 1, GetNumGroupMembers() do	
-				name = GetUnitName(prefix..count, true)
+				-- 3.3.5a: GetUnitName(unit, true) gives "Name - Realm"; build the key from UnitName
+				name = M.unitKey(prefix..count)
 			
 				if name then
-					name = M.Proper(M.addServer(name))
 					
 					if M.hasGlobalIgnored(name) > 0 and M.hasGroupWarning(name) == 0 then
 						doWarn = true
@@ -1172,6 +1325,9 @@ local function EventHandler (self, event, sender, ...)
 			if GlobalIgnoreDB.showDeclines == true then
 				M.ShowMsg (format(L["MSG_4"], sender))
 			end
+
+			-- 3.3.5a: DeclineGuild() leaves UIParent's GUILD_INVITE popup open
+			StaticPopup_Hide("GUILD_INVITE")
 		end
 		
 		return
@@ -1323,11 +1479,31 @@ function M.filterComplex (filterStr, chatStr, chNumber, chName)
 		pos2 = find(chatStr, "|h|r", pos1 + 8, true)
 		if not pos2 then break end
 		
-		pos3 = find(chatStr, ":", pos1 + 9, true)
-		if not pos3 then break end
+		-- 3.3.5a: spell links are |Hspell:ID|h (no colon after the ID); the original searched
+		-- for a colon and took a later one or left the link in the message
+		pos3 = string.match(chatStr, "^|hspell:(%d+)", pos1)
 		
-		spellID[#spellID + 1] = sub(chatStr, pos1 + 8, pos3 - 1, true)
+		if pos3 then
+			spellID[#spellID + 1] = pos3
+		end
 --		spellID[#spellID + 1] = sub(chatStr, pos1 + 8, find(chatStr, ":", pos1 + 9, true) - 1, true)
+
+		chatStr = sub(chatStr, 1, pos1 - 1) .. " " .. sub(chatStr, pos2 + 4, -1)
+	until false
+
+	-- 3.3.5a: recipe links are |Henchant:ID|h[Tailoring: ...]|h; they count as spells
+	repeat
+		pos1 = find(chatStr, "|henchant:", 1, true)
+		if not pos1 then break end
+
+		pos2 = find(chatStr, "|h|r", pos1 + 10, true)
+		if not pos2 then break end
+
+		pos3 = string.match(chatStr, "^|henchant:(%d+)", pos1)
+
+		if pos3 then
+			spellID[#spellID + 1] = pos3
+		end
 		
 		chatStr = sub(chatStr, 1, pos1 - 1) .. " " .. sub(chatStr, pos2 + 4, -1)
 	until false
@@ -1421,6 +1597,8 @@ function M.filterComplex (filterStr, chatStr, chNumber, chName)
 	local hasJournal	= find(chatStr, "|hjournal:", 1, true)
 	local hasMount		= find(chatStr, "|hmount:", 1, true)
 	local hasOutfit		= find(chatStr, "|houtfit:", 1, true)
+	local hasQuest		= find(chatStr, "|hquest:", 1, true)	-- 3.3.5a link types for [link]
+	local hasGlyph		= find(chatStr, "|hglyph:", 1, true)
 	
 	--print("After="..gsub(chatStr, "\124", "\124\124"))
 	
@@ -1711,7 +1889,7 @@ function M.filterComplex (filterStr, chatStr, chNumber, chName)
 							end
 						
 						elseif token == "[link]" then
-							if #achieveID > 0 or #spellID > 0 or #itemID > 0 or #talentID > 0 or hasJournal or hasGuild or hasTrade or hasOutfit or #petID > 0 or hasMount then
+							if #achieveID > 0 or #spellID > 0 or #itemID > 0 or #talentID > 0 or hasJournal or hasGuild or hasTrade or hasOutfit or #petID > 0 or hasMount or hasQuest or hasGlyph then
 								result = result .. "T"
 							else
 								result = result .. "F"
@@ -1912,7 +2090,9 @@ local function chatMessageFilter (self, event, message, from, t1, t2, t3, t4, t5
 				doLoginIgnore = false
 		end
 				
-		if (doLoginIgnore == true) or (V.GIL_InSync == true and GlobalIgnoreDB.chatmsg == false) then
+		-- 3.3.5a: the server's answers to a sync arrive after M.SyncIgnoreList has returned
+		-- (V.GIL_InSync is already false then), so also check the sync's quiet window
+		if (doLoginIgnore == true) or ((V.GIL_InSync == true or (V.quietUntil or 0) > GetTime()) and GlobalIgnoreDB and GlobalIgnoreDB.chatmsg == false) then
 			if message == ERR_IGNORE_NOT_FOUND or message == ERR_FRIEND_ERROR then
 				return true
 			end
@@ -1985,7 +2165,19 @@ local function chatMessageFilter (self, event, message, from, t1, t2, t3, t4, t5
 				
 				if (temp ~= lastSentIgnore) then
 					if GlobalIgnoreDB.ignoreResponse == true then
-						SendChatMessage(L["MSG_1"], "WHISPER", nil, from)
+						-- 3.3.5a: whisper the plain name ("Name-Realm" is not a player on a
+						-- single-realm server; other realms cannot be whispered), at most once a
+						-- minute per sender (two GIL users ignoring each other would ping-pong)
+						local target = from
+
+						if V.wowIs335 then
+							target = M.plainName(from)
+						end
+
+						if target and (lastReplyTime[from] == nil or GetTime() - lastReplyTime[from] >= 60) then
+							lastReplyTime[from] = GetTime()
+							SendChatMessage(L["MSG_1"], "WHISPER", nil, target)
+						end
 					end
 					lastSentIgnore = temp
 				end
@@ -2006,6 +2198,7 @@ local function chatMessageFilter (self, event, message, from, t1, t2, t3, t4, t5
 					event == "CHAT_MSG_INSTANCE_CHAT" or
 					event == "CHAT_MSG_INSTANCE_CHAT_LEADER" or
 					event == "CHAT_MSG_PARTY" or
+					event == "CHAT_MSG_PARTY_LEADER" or -- 3.3.5a: party leader chat was not covered
 					event == "CHAT_MSG_RAID" or 
 					event == "CHAT_MSG_RAID_LEADER" or
 					event == "CHAT_MSG_RAID_WARNING"					
@@ -2026,6 +2219,11 @@ local function chatMessageFilter (self, event, message, from, t1, t2, t3, t4, t5
 				end
 													
 				local newMsg = string.lower(message)
+
+				-- 3.3.5a: the filter runs once per chat frame that shows the message; the result
+				-- is cached per message.  Some events carry a line ID of 0, so the cache key also
+				-- holds the event, sender, text and the frame time (constant within one dispatch).
+				msgID = event .. "\031" .. tostring(msgID) .. "\031" .. from .. "\031" .. message .. "\031" .. GetTime()
 				
 				if GlobalIgnoreDB.floodFilter > 0 and lastFilterMsgID ~= msgID then						
 					local text = ""
@@ -2094,9 +2292,10 @@ local function chatMessageFilter (self, event, message, from, t1, t2, t3, t4, t5
 	return false
 end
 
+-- 3.3.5a: CHANNEL_INVITE_REQUEST is not a chat message event (the filter never ran for it),
+-- CHAT_MSG_INSTANCE_CHAT(_LEADER) do not exist in 3.3.5a, and CHAT_MSG_PARTY_LEADER was missing
 local chatEvents = (
 		{
-		"CHANNEL_INVITE_REQUEST",
 		"CHAT_MSG_ACHIEVEMENT",
 		"CHAT_MSG_BATTLEGROUND",
 		"CHAT_MSG_BATTLEGROUND_LEADER",
@@ -2107,8 +2306,6 @@ local chatEvents = (
 		"CHAT_MSG_EMOTE",
 		"CHAT_MSG_GUILD",
 		"CHAT_MSG_GUILD_ACHIEVEMENT",	
-		"CHAT_MSG_INSTANCE_CHAT",
-		"CHAT_MSG_INSTANCE_CHAT_LEADER",
 		"CHAT_MSG_MONSTER_EMOTE",
 		"CHAT_MSG_MONSTER_PARTY",
 		"CHAT_MSG_MONSTER_SAY",
@@ -2116,6 +2313,7 @@ local chatEvents = (
 		"CHAT_MSG_MONSTER_YELL",
 		"CHAT_MSG_OFFICER",
 		"CHAT_MSG_PARTY",
+		"CHAT_MSG_PARTY_LEADER",
 		"CHAT_MSG_RAID",
 		"CHAT_MSG_RAID_LEADER",
 		"CHAT_MSG_RAID_WARNING",
@@ -2126,6 +2324,11 @@ local chatEvents = (
 		"CHAT_MSG_YELL"
 		}
 	)
+
+if not V.wowIs335 then
+	chatEvents[#chatEvents + 1] = "CHAT_MSG_INSTANCE_CHAT"
+	chatEvents[#chatEvents + 1] = "CHAT_MSG_INSTANCE_CHAT_LEADER"
+end
 
 for key, value in pairs (chatEvents) do
 	ChatFrame_AddMessageEventFilter(value, chatMessageFilter)
@@ -2139,12 +2342,19 @@ local function GILTest()
 end
 
 function M.ignoreFromCmd (argStr)
-	argStr = (M.trim(M.Proper(argStr)) or "")
+	-- 3.3.5a: M.Proper("") is nil and M.trim(nil) raised an error ("/gi add" with a target), and
+	-- M.Proper removed the spaces, so "/gi add name days note" stored "Namedaysnote".  Only the
+	-- name is Proper'd now; the AddIgnore wrapper parses "days note" as documented.
+	local note
+	argStr = M.trim(argStr or "")
+	argStr, note = string.match(argStr, "^(%S*)%s*(.-)$")
+	argStr = M.Proper(argStr) or ""
+
 	local server
 	if argStr == "" then
 		argStr, server =  UnitName("target")
 					
-		if server ~= nil then
+		if server ~= nil and server ~= "" then
 			argStr = argStr .. "-"..server
 		end
 			
@@ -2154,7 +2364,13 @@ function M.ignoreFromCmd (argStr)
 	end
 		
 	if argStr ~= "" then
-		C_FriendList.AddIgnore (M.Proper(argStr))
+		argStr = M.Proper(argStr)
+
+		if note ~= "" then
+			argStr = argStr .. " " .. note
+		end
+
+		C_FriendList.AddIgnore (argStr)
 	end
 end
 
@@ -2234,8 +2450,14 @@ function SlashCmdList.GIGNORE (msg)
 
 	elseif msg == "sameserver false" or msg == "sameserver off" then
 	
-		GlobalIgnoreDB.sameserver = false
-		M.ShowMsg(L["CMD_11"])
+		if V.wowIs335 then
+			-- 3.3.5a: a single-realm server cannot ignore players of other realms
+			GlobalIgnoreDB.sameserver = true
+			M.ShowMsg(L["CMD_20"])
+		else
+			GlobalIgnoreDB.sameserver = false
+			M.ShowMsg(L["CMD_11"])
+		end
 		
 	elseif args[1] == "list" then
 	
@@ -2254,6 +2476,11 @@ function SlashCmdList.GIGNORE (msg)
 			if str == "npc" then
 				M.ShowMsg (format(L["CMD_12"], M.Proper(GlobalIgnoreDB.ignoreList[tonumber(argStr)], true)))
 				RemoveFromList(tonumber(argStr))
+				M.GILUpdateUI(true)
+			elseif str == "server" then
+				-- 3.3.5a: a realm entry went to DelIgnore, whose index fallback then removed the
+				-- server list's entry with that number (an unrelated player)
+				M.AddOrDelServer(tonumber(argStr))
 				M.GILUpdateUI(true)
 			else
 				C_FriendList.DelIgnore(args[2], true)
@@ -2366,6 +2593,10 @@ end
 -- BLIZZARD FUNCTION HOOKS --
 -----------------------------
 
+-- 3.3.5a: C_FriendList/C_PartyInfo are GIL's private tables here (GIL_Compat335.lua), so the
+-- Blizzard* locals are its server helpers (plain own-realm names, index -> name) and the
+-- wrappers below never replace a Blizzard global.  Blizzard's own UI is post-hooked at the end.
+
 BlizzardInviteUnit			= C_PartyInfo.InviteUnit
 BlizzardAddIgnore			= C_FriendList.AddIgnore
 BlizzardDelIgnore			= C_FriendList.DelIgnore
@@ -2374,7 +2605,8 @@ BlizzardAddOrDelIgnore		= C_FriendList.AddOrDelIgnore
 
 StaticPopupDialogs["GIL_PARTYCONFIRM"] = {
 
-	preferredIndex	= STATICPOPUPS_NUMDIALOGS,
+	preferredIndex	= STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
+	timeout			= 0, -- 3.3.5a: StaticPopup_OnUpdate needs a number (nil raised an error every frame)
 	text			= L["BOX_7"],
 	button1			= L["BOX_6"],
 	button2			= L["BOX_5"],
@@ -2387,8 +2619,20 @@ StaticPopupDialogs["GIL_PARTYCONFIRM"] = {
 
 StaticPopupDialogs["GIL_PARTYWARN"] = {
 
-	preferredIndex	= STATICPOPUPS_NUMDIALOGS,
+	preferredIndex	= STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
 	text			= L["BOX_8"],
+	button1			= L["BOX_6"],
+	timeout         = 15,
+	whileDead		= true,
+	hideOnEscape	= true,
+}
+
+-- 3.3.5a: an invite cannot be intercepted without tainting Blizzard's invite paths; GIL warns
+-- after the invite was sent instead (see the InviteUnit hook at the end of this file)
+StaticPopupDialogs["GIL_INVITEWARN"] = {
+
+	preferredIndex	= STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS,
+	text			= L["BOX_14"],
 	button1			= L["BOX_6"],
 	timeout         = 15,
 	whileDead		= true,
@@ -2422,7 +2666,7 @@ C_FriendList.AddIgnore = function(name, noNote)
 
 		name, server = UnitName("target")
 					
-		if server ~= nil then
+		if name and server ~= nil and server ~= "" then -- 3.3.5a: own-realm server can be ""
 			name = name .. "-"..server
 		end
 	end
@@ -2466,6 +2710,9 @@ C_FriendList.AddIgnore = function(name, noNote)
 	
 		if index == 0 then
 			AddToList(name, faction, note)
+
+			-- 3.3.5a: "name days note" parsed the days but never stored them
+			GlobalIgnoreDB.expList[#GlobalIgnoreDB.ignoreList] = days
 			
 			if GlobalIgnoreDB.asknote == true and not noNote then
 			
@@ -2565,7 +2812,9 @@ C_FriendList.DelIgnore = function(idxpos, isGIL)
 			else
 				M.GILUpdateUI()
 			end
-		else
+		elseif not (isGIL and tonumber(idxpos)) then
+			-- 3.3.5a: never pass a GIL index on; the server helper reads a number as a server
+			-- list index (GetIgnoreName(n)) and would remove an unrelated player
 			BlizzardDelIgnore(idxpos)
 		end
 --	end
@@ -2581,17 +2830,24 @@ C_FriendList.AddOrDelIgnore = function(name)
 
 		name, server = UnitName("target")
 					
-		if server ~= nil then
+		if name and server ~= nil and server ~= "" then -- 3.3.5a: own-realm server can be ""
 			name = name .. "-"..server
 		end
+	end
+
+	-- 3.3.5a: without a name and a target, find(nil) below raised an error
+	if (not name or name == "") then
+		return
 	end
 	
 	local find = string.find
 	local sub  = string.sub
 	
 	-- try to resolve server if there isn't one due to Blizzard bugs
+	-- 3.3.5a: skipped.  Chat frames have no historyBuffer (error on every call), and on a
+	-- single-realm server a name without "-" is an own-realm name (M.addServer below).
 	
-	if not find(name, "-", nil, true) then
+	if not V.wowIs335 and not find(name, "-", nil, true) then
 		local pServers = {}
 		local pServer  = ""
 		local tempName, count
@@ -2681,6 +2937,54 @@ C_FriendList.AddOrDelIgnore = function(name)
 	end	
 end
 
+-- 3.3.5a: add a player to GIL that is already on the server list, or that Blizzard's own UI just
+-- sent to the server.  Unlike the AddIgnore wrapper this never calls the server.
+function M.GILTrackAdd (name, noNote)
+
+	name = M.key(name)
+
+	if not name then return end
+
+	local tmp = M.removeServer(name, true)
+
+	if (tmp == "") or (tmp == _G.UNKNOWN) or name == V.playerName then return end
+
+	if M.hasGlobalIgnored(name) > 0 then return end
+
+	V.needSorted = true
+
+	AddToList(name, faction, "")
+
+	if GlobalIgnoreDB.asknote == true and not noNote then
+		V.nameUI = name
+		StaticPopup_Show("GIL_REASON", V.nameUI)
+	end
+
+	if not (V.GIL_InSync == true and GlobalIgnoreDB.chatmsg == false) then
+		M.ShowMsg(format(L["ADD_2"], name))
+	end
+
+	M.GILUpdateUI()
+end
+
+-- 3.3.5a: remove a player from GIL after Blizzard's own UI removed it from the server list
+function M.GILTrackDel (name)
+
+	name = M.key(name)
+
+	local index = M.hasGlobalIgnored(name)
+
+	if index == 0 then return end
+
+	V.needSorted = true
+
+	RemoveFromList(index)
+
+	M.ShowMsg(format(L["REM_1"], name))
+
+	M.GILUpdateUI()
+end
+
 M.AddOrDelNPC = function (argStr)
 	
 	if tonumber(argStr) then
@@ -2767,15 +3071,157 @@ GILFRAME:RegisterEvent("ADDON_LOADED")
 GILFRAME:RegisterEvent("IGNORELIST_UPDATE")
 GILFRAME:RegisterEvent("PARTY_INVITE_REQUEST")
 GILFRAME:RegisterEvent("DUEL_REQUESTED")
-GILFRAME:RegisterEvent("GROUP_ROSTER_UPDATE")
 GILFRAME:RegisterEvent("GUILD_INVITE_REQUEST")
 GILFRAME:RegisterEvent("TRADE_REQUEST")
+
+if V.wowIs335 then
+	-- 3.3.5a: no GROUP_ROSTER_UPDATE
+	GILFRAME:RegisterEvent("PARTY_MEMBERS_CHANGED")
+	GILFRAME:RegisterEvent("RAID_ROSTER_UPDATE")
+else
+	GILFRAME:RegisterEvent("GROUP_ROSTER_UPDATE")
+end
 
 SLASH_GIGNORE1		= "/gignore"
 SLASH_GIGNORE2		= "/gi"
 SLASH_GIGNORE3		= "/gil"
 
 GILFRAME:SetScript("OnEvent", EventHandler)
+
+-----------------------------------------
+-- 3.3.5a: BLIZZARD IGNORE UI AND SYNC --
+-----------------------------------------
+
+if V.wowIs335 then
+
+	-- IGNORELIST_UPDATE: remember that the server list has arrived and run a sync that was
+	-- deferred until then (once).  GILFRAME stops listening at startup, so this has its own frame.
+	-- A sync is never started by every update: the sync's own calls fire this event.
+	local listFrame = CreateFrame("Frame")
+
+	listFrame:RegisterEvent("IGNORELIST_UPDATE")
+	listFrame:SetScript("OnEvent", function(self, event)
+		V.ignoreListSeen = true
+
+		if deferredSync and V.GIL_Loaded == true then
+			local silent = deferredSync.silent
+
+			deferredSync = nil
+
+			if V.GIL_SyncOK == false then
+				M.SyncIgnoreList(silent)
+			end
+		end
+	end)
+
+	-- Blizzard's own ignore UI (/ignore, /unignore, the Friends frame buttons and its ADD_IGNORE
+	-- popup, the chat name menu) calls the global AddIgnore/DelIgnore/AddOrDelIgnore.  Replacing
+	-- them would taint UnitPopup_OnClick, ChatEdit_ParseText and the FriendsFrame handlers, so they
+	-- are post-hooked and the change is mirrored into GIL (no server call: Blizzard sent it).
+	-- GIL's own server calls use the raw functions captured in GIL_Compat335.lua and do not come here.
+	local function blizzardKey (name)
+		if type(name) == "number" then
+			name = C_FriendList.GetIgnoreName(name)
+		end
+
+		if name == nil or name == "" then
+			if UnitIsPlayer("target") then
+				return M.unitKey("target")
+			end
+
+			return nil
+		end
+
+		return M.key(string.match(tostring(name), "^%s*(%S+)"))
+	end
+
+	hooksecurefunc("AddIgnore", function(name)
+		if V.GIL_Loaded ~= true then return end
+
+		M.GILTrackAdd(blizzardKey(name))
+	end)
+
+	hooksecurefunc("DelIgnore", function(name)
+		if V.GIL_Loaded ~= true then return end
+
+		M.GILTrackDel(blizzardKey(name))
+	end)
+
+	hooksecurefunc("AddOrDelIgnore", function(name)
+		if V.GIL_Loaded ~= true then return end
+
+		local key = blizzardKey(name)
+
+		-- the server list only changes when the server answers, so it still shows the old state
+		if key and hasIgnored(key) > 0 then
+			M.GILTrackDel(key)
+		else
+			M.GILTrackAdd(key)
+		end
+	end)
+
+	-- the server's confirmations, for changes the hooks did not see (another addon calling the
+	-- raw functions, or AddOrDelIgnore's direction).  It calls the server in one case only (a
+	-- late confirmation of a player GIL has removed since); that call is pending, so the answer
+	-- to it ends here and nothing can loop.
+	local function systemPattern (str)
+		str = string.gsub(str, "([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+		str = string.gsub(str, "%%%%s", "(.+)")
+
+		return "^" .. str .. "$"
+	end
+
+	local PAT_ADDED   = systemPattern(ERR_IGNORE_ADDED_S)
+	local PAT_REMOVED = systemPattern(ERR_IGNORE_REMOVED_S)
+	local systemFrame = CreateFrame("Frame")
+
+	systemFrame:RegisterEvent("CHAT_MSG_SYSTEM")
+	systemFrame:SetScript("OnEvent", function(self, event, message)
+		if V.GIL_Loaded ~= true or type(message) ~= "string" then return end
+
+		local name = string.match(message, PAT_ADDED)
+
+		if name then
+			local key = M.key(name)
+
+			if not M.isPending(key) then
+				M.GILTrackAdd(name, true)
+			elseif M.hasGlobalIgnored(key) == 0 and hasDeleted(key) > 0 then
+				-- GIL's add was confirmed after the player had been removed from GIL again.  The
+				-- removal could not reach the server earlier (DelIgnore only finds names that are
+				-- already on the list), so send it now; its answer is pending and ends here.
+				BlizzardDelIgnore(M.removeServer(key))
+			end
+
+			return
+		end
+
+		name = string.match(message, PAT_REMOVED)
+
+		if name and not M.isPending(M.key(name)) then
+			M.GILTrackDel(name)
+		end
+	end)
+
+	-- invites: overriding InviteUnit would taint Blizzard's invite paths (unit menu, /invite), so
+	-- GIL can only warn after the invite was sent (the unit menu also shows a warning line)
+	hooksecurefunc("InviteUnit", function(name)
+		if V.GIL_Loaded ~= true or type(name) ~= "string" or name == "" then return end
+
+		local key
+
+		if UnitExists(name) then
+			key = M.unitKey(name)
+		else
+			key = M.key(name)
+		end
+
+		if key and M.hasGlobalIgnored(key) > 0 then
+			M.ShowMsg(format(L["CHAT_2"], M.removeServer(key)))
+			StaticPopup_Show("GIL_INVITEWARN", M.removeServer(key))
+		end
+	end)
+end
 
 -------------
 -- THE END --

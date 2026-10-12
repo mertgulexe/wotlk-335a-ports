@@ -151,6 +151,28 @@ function M.strDown (str)
 	return res
 end
 
+-- 3.3.5a: upper or lower case of one 2-byte UTF-8 character (bytes c1, c2) for the Latin-1
+-- supplement (U+00C0-U+00FE) and Cyrillic (U+0400-U+045F); other characters are kept
+local function utf8Case (c1, c2, up)
+
+	local cp = (c1 - 192) * 64 + (c2 - 128)
+	local new = cp
+
+	if up then
+		if cp >= 224 and cp <= 254 and cp ~= 247 then new = cp - 32
+		elseif cp >= 1072 and cp <= 1103 then new = cp - 32
+		elseif cp >= 1104 and cp <= 1119 then new = cp - 80
+		end
+	else
+		if cp >= 192 and cp <= 222 and cp ~= 215 then new = cp + 32
+		elseif cp >= 1040 and cp <= 1071 then new = cp + 32
+		elseif cp >= 1024 and cp <= 1039 then new = cp + 80
+		end
+	end
+
+	return string.char(192 + math.floor(new / 64), 128 + new % 64)
+end
+
 function M.Proper (name, okSpaces)
 
 	if name == nil then return nil end
@@ -171,7 +193,17 @@ function M.Proper (name, okSpaces)
 		c = sb(name, count)
 				
 		if c < 32 or c > 126 then
-			res    = res .. char(c)
+			local c2 = sb(name, count + 1)
+			
+			-- 3.3.5a: 2-byte UTF-8 letters (Latin-1, Cyrillic) get the same case rule, so a name
+			-- typed in lower case matches the server's spelling (many player names are Cyrillic)
+			if c >= 194 and c <= 223 and c2 and c2 >= 128 and c2 <= 191 then
+				res   = res .. utf8Case(c, c2, needUp)
+				count = count + 1
+			else
+				res = res .. char(c)
+			end
+			
 			needUp = false
 		else
 			if c ~= 32 or okSpaces == true then
@@ -231,7 +263,7 @@ function M.prettyServer (origName)
 	local name = origName
 
 	if name == "Aeriepeak" then name = "Aerie Peak"
-	elseif name == "Aggra(português)" then name = "Aggra (Português)"
+	elseif name == "Aggra(portuguï¿½s)" then name = "Aggra (Portuguï¿½s)"
 	elseif name == "Ahn'qiraj" then name = "Ahn'Qiraj"
 	elseif name == "Al'akir" then name = "Al'Akir"
 	elseif name == "Altarofstorms" then name = "Altar of Storms"
@@ -258,12 +290,12 @@ function M.prettyServer (origName)
 	elseif name == "Burningsteppes" then name = "Burning Steppes"
 	elseif name == "Cenarioncircle" then name = "Cenarion Circle"
 	elseif name == "Chamberofaspects" then name = "Chamber of Aspects"
-	elseif name == "Chantséternels" then name = "Chants éternels"
+	elseif name == "Chantsï¿½ternels" then name = "Chants ï¿½ternels"
 	elseif name == "Chaosbolt" then name = "Chaos Bolt"
 	elseif name == "Chillwindpoint" then name = "Chillwind Point"
 	elseif name == "Chromie(ru)" then name = "Chromie (RU)"
 	elseif name == "Colinaspardas" then name = "Colinas Pardas"
-	elseif name == "Confrérieduthorium" then name = "Confrérie du Thorium"
+	elseif name == "Confrï¿½rieduthorium" then name = "Confrï¿½rie du Thorium"
 	elseif name == "Conseildesombres" then name = "Conseil des Ombres"
 	elseif name == "Crusaderstrike" then name = "Crusader Strike"
 	elseif name == "Crystalpinestinger" then name = "Crystalpine Stinger"
@@ -298,7 +330,7 @@ function M.prettyServer (origName)
 	elseif name == "Eldre'thalas" then name = "Eldre'Thalas"
 	elseif name == "Emeralddream" then name = "Emerald Dream"
 	elseif name == "Fengus'ferocity" then name = "Fengus' Ferocity"
-	elseif name == "Festungderstürme" then name = "Festung der Stürme"
+	elseif name == "Festungderstï¿½rme" then name = "Festung der Stï¿½rme"
 	elseif name == "Flamegor(ru)" then name = "Flamegor (RU)"
 	elseif name == "Grimbatol" then name = "Grim Batol"
 	elseif name == "Grizzlyhills" then name = "Grizzly Hills"
@@ -312,7 +344,7 @@ function M.prettyServer (origName)
 	elseif name == "Krolblade" then name = "Krol Blade"
 	elseif name == "Kultiras" then name = "Kul Tiras"
 	elseif name == "Kultderverdammten" then name = "Kult der Verdammten"
-	elseif name == "Lacroisadeécarlate" then name = "La Croisade écarlate"
+	elseif name == "Lacroisadeï¿½carlate" then name = "La Croisade ï¿½carlate"
 	elseif name == "Laughingskull" then name = "Laughing Skull"
 	elseif name == "Lavalash" then name = "Lava Lash"
 	elseif name == "Leishen" then name = "Lei Shen"
@@ -326,7 +358,7 @@ function M.prettyServer (origName)
 	elseif name == "Loserrantes" then name = "Los Errantes"
 	elseif name == "Maladath(au)" then name = "Maladath (AU)"
 	elseif name == "Mal'ganis" then name = "Mal'Ganis"
-	elseif name == "Marécagedezangar" then name = "Marécage de Zangar"
+	elseif name == "Marï¿½cagedezangar" then name = "Marï¿½cage de Zangar"
 	elseif name == "Mirageraceway" then name = "Mirage Raceway"
 	elseif name == "Mok'nathal" then name = "Mok'Nathal"
 	elseif name == "Mol'dar'smoxie" then name = "Mol'dar's Moxie"
@@ -338,7 +370,7 @@ function M.prettyServer (origName)
 	elseif name == "Orderofthecloudserpent" then name = "Order of the Cloud Serpent"
 	elseif name == "Penance(au)" then name = "Penance (AU)"
 	elseif name == "Penance(season)" then name = "Penance (Season)"
-	elseif name == "Pozzodell'eternità" then name = "Pozzo dell'Eternità"
+	elseif name == "Pozzodell'eternitï¿½" then name = "Pozzo dell'Eternitï¿½"
 	elseif name == "Pyrewoodvillage" then name = "Pyrewood Village"
 	elseif name == "Quel'thalas" then name = "Quel'Thalas"
 	elseif name == "Remulos(au)" then name = "Remulos (AU)"
@@ -425,7 +457,7 @@ function M.removeServer (name, strict)
 		return nil
 	end
 
-	result = name
+	local result = name -- 3.3.5a: was an accidental global
 	
 	local index = string.find(name, "-", 1, true)
 	
@@ -455,6 +487,61 @@ function M.addServer (name)
 	return name
 end
 
+-- 3.3.5a: name helpers shared by every file (the key format is unchanged)
+
+-- GIL keys are M.Proper("Name-Realm"); M.Proper drops spaces, so a realm such as
+-- "Aerie Peak" becomes "Aeriepeak" on both sides of every comparison.
+function M.key (name, realm)
+
+	if type(name) ~= "string" then return nil end
+
+	name = M.trim(name)
+
+	if name == "" then return nil end
+
+	if realm and realm ~= "" and not string.find(name, "-", 1, true) then
+		name = name .. "-" .. realm
+	end
+
+	return M.Proper(M.addServer(name))
+end
+
+-- key of a unit ("target", "party1", ...): UnitName returns the realm separately
+function M.unitKey (unit)
+
+	if not unit then return nil end
+
+	local name, realm = UnitName(unit)
+
+	if not name or name == "" or name == UNKNOWN then return nil end
+
+	return M.key(name, realm)
+end
+
+-- plain character name for the server: "Bob-Ownrealm" -> "Bob", "Bob" -> "Bob",
+-- "Bob-Otherrealm" -> nil (a single-realm 3.3.5a server cannot ignore other realms)
+function M.plainName (name)
+
+	if type(name) ~= "string" or name == "" then return nil end
+
+	local idx = string.find(name, "-", 1, true)
+
+	if not idx then return name end
+
+	if M.Proper(string.sub(name, idx + 1)) == V.serverName then
+		return string.sub(name, 1, idx - 1)
+	end
+
+	return nil
+end
+
+function M.isPending (key)
+
+	local deadline = key and V.pending[key]
+
+	return deadline ~= nil and GetTime() < deadline
+end
+
 ----------------------
 -- SHARED VARIABLES --
 ----------------------
@@ -469,6 +556,11 @@ V.wowIsMOP			= false
 V.wowIsRetail		= false
 V.wowLongName		= "Unknown"
 V.wowName			= V.wowLongName
+
+-- 3.3.5a: names GIL itself sent to the server (key -> GetTime() deadline).  The server answers
+-- later with "is now / is no longer being ignored"; the CHAT_MSG_SYSTEM reconciliation in
+-- GlobalIgnoreList.lua skips these so it never undoes GIL's own adds and removes.
+V.pending = {}
 
 -- Color yellow: ffff0000
 -- Color white: ffffff00
