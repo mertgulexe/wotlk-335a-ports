@@ -1,13 +1,14 @@
-## Interface: 90207
+## Interface: 30300
 ## Title: TinyPad
 ## Notes: TinyPad is a notepad addon
 ## Author: Gello
-## Version: 3.0.19
+## Version: 3.0.19-wotlk335
 ## X-WoWI-ID: 4417
 ## X-Wago-ID: RqGZpQ6d
 ## X-Curse-Project-ID: 84962
 ## SavedVariables: TinyPadSettings, TinyPadPages
 
+misc\compat.lua
 init.lua
 main.lua
 

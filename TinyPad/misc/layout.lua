@@ -101,6 +101,8 @@ function t.layout:Show(layout)
         t.searchbar.searchBox:SetFocus()
     end
 
+    t.toolbar:UpdateKeys() -- 3.3.5a: whether ESC closes a panel or the window (see toolbar.lua)
+
 end
 
 function t.layout:Toggle(layout)

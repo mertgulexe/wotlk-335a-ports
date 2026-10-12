@@ -12,6 +12,15 @@ t.init:Register("pages")
 
 function t.pages:LoginInit()
     t.pages.saved = TinyPadPages
+    -- 3.3.5a port (notes import): before GoToPage kept one page, deleting the last page made a page 0 that the next
+    -- login could not show (the text typed on it was saved there); it becomes page 1, before the pages made after it
+    local page0 = t.pages.saved[0]
+    if page0=="" then
+        t.pages.saved[0] = nil
+    elseif type(page0)=="string" or type(page0)=="table" then
+        t.pages.saved[0] = nil
+        tinsert(t.pages.saved,1,page0)
+    end
     -- if no pages at all, add a Welcome to TinyPad! page
     if #t.pages.saved==0 then
         tinsert(t.pages.saved,t.constants.WELCOME_MESSAGE)
@@ -38,11 +47,28 @@ end
 -- saves the contents of the current page; call before moving away from a page, closing window or doing anything
 -- that depends on the contents (like run or chat)
 function t.pages:SavePage()
-    if type(t.pages.saved[currentPageNum])=="table" then
-        t.pages.saved[currentPageNum][2] = t.editor.editBox:GetText()
-    elseif type(t.pages.saved[currentPageNum])=="string" then
-        t.pages.saved[currentPageNum] = t.editor.editBox:GetText()
+    -- 3.3.5a port (notes import): only write back text the editor loaded from this very slot, and only when it
+    -- changed. Never from an editor that didn't load the page (window shown after a failed setup: the empty editbox
+    -- would replace the page) or after the page list shifted underneath it (TinyPad:Insert at or before this page)
+    local page = t.pages.saved and currentPageNum and t.pages.saved[currentPageNum]
+    local editBox = t.editor.editBox
+    if not editBox or not currentPageNum or t.editor.loadedPageNum~=currentPageNum then
+        return
     end
+    local stored = type(page)=="table" and page[2] or page
+    if stored~=t.editor.loadedText then
+        return
+    end
+    local text = editBox:GetText()
+    if text==stored then
+        return
+    end
+    if type(page)=="table" then
+        page[2] = text
+    elseif type(page)=="string" then
+        t.pages.saved[currentPageNum] = text
+    end
+    t.editor.loadedText = text
 end
 
 -- returns text[,title] from saved pages at the given index, or "" if it doesn't exist
@@ -117,6 +143,11 @@ end
 -- if this page change is due to pages being deleted, pass dontSave as true so it doesn't write
 -- the current editor contents to another page
 function t.pages:GoToPage(pageNum,dontSave)
+    -- 3.3.5a port (notes import): after the last page was deleted, keep one empty page (as TinyPad 1.x did); the
+    -- clamp below made page 0, and what was typed there was lost at the next login
+    if #t.pages.saved==0 then
+        tinsert(t.pages.saved,"")
+    end
     -- keep pageNum within 1 to last page
     pageNum = min(#t.pages.saved,max(1,(pageNum or currentPageNum))) 
     -- if the page no longer exists there (gaps in ordered list), create a blank one

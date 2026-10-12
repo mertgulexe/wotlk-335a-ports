@@ -16,7 +16,7 @@ t.buttons.textureMethods = {"NormalTexture","PushedTexture","HighlightTexture","
 function t.buttons:Create(parent,width,height,normalX,normalY,func,anchor,tooltipTitle,tooltipBody)
 
     local isPanelButton = type(normalX)=="string"
-    local button = CreateFrame("Button",nil,parent,isPanelButton and "TinyPadPanelButtonTemplate")
+    local button = CreateFrame("Button",nil,parent,isPanelButton and "TinyPadPanelButtonTemplate" or nil) -- 3.3.5a: never pass false as the template
     button:SetSize(width,height)
     button:RegisterForClicks("AnyUp")
 
@@ -81,7 +81,7 @@ end
 function t.buttons:SetEnabled(button,enabled)
     -- if it's being disabled (and currently enabled) then set its state to normal so it's not disabled while down
     -- (these buttons don't have a DisabledTexture, where this step wouldn't be necessary)
-    if not enabled and button:IsEnabled() then
+    if not enabled and t.compat.IsEnabled(button) then -- 3.3.5a: IsEnabled() returns 1/0
         button:SetButtonState("NORMAL")
     end
     -- recolor the NormalTexture to a dim grey if disabled
@@ -92,7 +92,7 @@ function t.buttons:SetEnabled(button,enabled)
         button:GetNormalTexture():SetVertexColor(0.65,0.65,0.65)
     end
     -- and set its enabled state to prevent interaction with the button
-    button:SetEnabled(enabled)
+    t.compat.SetEnabled(button,enabled) -- 3.3.5a: was button:SetEnabled(enabled)
 end
 
 --[[ tooltips ]]
@@ -115,7 +115,7 @@ end
 -- when clicking elsewhere loses editbox focus, the editbox may want to keep focus if a button is being pressed;
 -- this flag alerts lets the editbox choose to keep focus if a button is being clicked
 function t.buttons:OnMouseDown()
-    if self:IsEnabled() then
+    if t.compat.IsEnabled(self) then -- 3.3.5a: IsEnabled() returns 1/0
         t.buttons.isButtonBeingClicked = true
     end
 end

@@ -45,7 +45,7 @@ function t.bookmarks:Init()
     t.bookmarks.border:SetVertexColor(0.35,0.35,0.35)
 
     -- scrollframe for the bookmark buttons; buttons are added in t.bookmarks:UpdateList()
-    t.bookmarks.scrollFrame = t.scrollFrame:Create(t.bookmarks)
+    t.bookmarks.scrollFrame = t.scrollFrame:Create(t.bookmarks,nil,"TinyPadBookmarksScrollFrame") -- 3.3.5a: named (see scrollframe.lua)
     t.bookmarks.scrollFrame:SetPoint("TOPLEFT",5,-36)
     t.bookmarks.scrollFrame:SetPoint("BOTTOMRIGHT",-6,6)
     t.bookmarks.scrollFrame.scrollChild.buttons = {}
@@ -116,13 +116,13 @@ end
 
 function t.bookmarks:TitleEditBoxOnTextChanged()
     local hasText = t.bookmarks.titleEditBox:GetText():trim():len() > 0
-    t.bookmarks.titleEditBox.instructions:SetShown(not hasText)
-    t.bookmarks.titleEditBox.clearButton:SetShown(hasText)
+    t.compat.SetShown(t.bookmarks.titleEditBox.instructions,not hasText) -- 3.3.5a: was :SetShown() (2 lines)
+    t.compat.SetShown(t.bookmarks.titleEditBox.clearButton,hasText)
     t.buttons:SetEnabled(t.bookmarks.titleButton,hasText)
 end
 
 function t.bookmarks:TitleEditBoxOnEditFocusLost()
-    C_Timer.After(t.constants.EDIT_FOCUS_TIMER,function()
+    t.compat.After(t.constants.EDIT_FOCUS_TIMER,function() -- 3.3.5a: was C_Timer.After
         if not t.bookmarks.titleEditBox:HasFocus() and t.bookmarks.titleEditBox:IsVisible() then
             t.bookmarks:ShowAddRemoveButton()
         end
@@ -237,9 +237,9 @@ function t.bookmarks:ColorBookmarkButton(button,down)
         back = down and t.constants.BOOKMARK_DOWN_BACK or t.constants.BOOKMARK_UP_BACK
         dark = down and t.constants.BOOKMARK_DOWN_DARK or t.constants.BOOKMARK_UP_DARK
     end
-    button.left:SetColorTexture(dark,dark,dark)
-    button.bottom:SetColorTexture(dark,dark,dark)
-    button.top:SetColorTexture(light,light,light)
-    button.right:SetColorTexture(light,light,light)
-    button.back:SetColorTexture(back,back,back)
+    t.compat.SetColorTexture(button.left,dark,dark,dark) -- 3.3.5a: was :SetColorTexture() (5 lines)
+    t.compat.SetColorTexture(button.bottom,dark,dark,dark)
+    t.compat.SetColorTexture(button.top,light,light,light)
+    t.compat.SetColorTexture(button.right,light,light,light)
+    t.compat.SetColorTexture(button.back,back,back,back)
 end

@@ -70,9 +70,29 @@ end
 
 t.init:Register("settings")
 
+-- 3.3.5a port (notes import): TinyPad 1.x (3.3.5a) kept one font index in TinyPadSettings.Font, 1-8; these are the
+-- same file and size in 3.0.19's fonts where possible: {FontFamily,FontSize}. 1.x 7/8 were Morpheus 16/24 outline.
+local OLD_FONT_INDEX = { {1,1}, {1,2}, {1,3}, {2,1}, {2,2}, {2,3}, {4,2}, {4,3} }
+-- 3.3.5a port: saved numbers that are used for positions; anything else in them is dropped
+local NUMBER_SETTINGS = { "XPos", "YPos", "Width", "Height", "MinimapPosition" }
+
 -- on player login, load defaults if they're undefined
 function t.settings:LoginInit()
+    if type(TinyPadSettings)~="table" then -- 3.3.5a port: a damaged savedvar can't be used
+        TinyPadSettings = {}
+    end
     t.settings.saved = TinyPadSettings
+    -- 3.3.5a port: one-time import of the 1.x font. Font and Lock are kept as they are: Lock means the same in 3.0.19,
+    -- and Font lets TinyPad 1.x read this file again after a rollback
+    local oldFont = OLD_FONT_INDEX[t.settings.saved.Font]
+    if oldFont and t.settings.saved.FontFamily==nil and t.settings.saved.FontSize==nil then
+        t.settings.saved.FontFamily, t.settings.saved.FontSize = oldFont[1], oldFont[2]
+    end
+    for _,setting in ipairs(NUMBER_SETTINGS) do
+        if t.settings.saved[setting]~=nil and type(t.settings.saved[setting])~="number" then
+            t.settings.saved[setting] = nil
+        end
+    end
     -- load default settings for undefined settings
     for setting,value in pairs(t.settings.defaults) do
         if t.settings.saved[setting]==nil then
@@ -111,11 +131,11 @@ function t.settings:Init()
     t.settings.title:SetText("Settings")
 
     -- the scrollframe that takes up most of the panel
-    t.settings.scrollFrame = t.scrollFrame:Create(t.settings)
+    t.settings.scrollFrame = t.scrollFrame:Create(t.settings,nil,"TinyPadSettingsScrollFrame") -- 3.3.5a: named (see scrollframe.lua)
     t.settings.scrollFrame:SetPoint("TOPLEFT",5,-22)
     t.settings.scrollFrame:SetPoint("BOTTOMRIGHT",-6,6)
     t.settings.scrollFrame.scrollChild.buttons = {}
-    t.settings.scrollFrame:SetIgnoreParentAlpha(true)
+    -- 3.3.5a: SetIgnoreParentAlpha(true) removed (not in 3.3.5a); the window never fades out while this panel is open
 
     -- build option buttons from optionsInfo, attached to the scrollchild
     local yoff = 0
@@ -248,7 +268,12 @@ function t.settings.changeFuncs:Invisible()
 end
 
 function t.settings.changeFuncs:ShowMinimapButton()
-    t.minimap:SetShown(t.settings.saved.ShowMinimapButton)
+    t.compat.SetShown(t.minimap,t.settings.saved.ShowMinimapButton) -- 3.3.5a: was :SetShown()
+end
+
+-- 3.3.5a: Allow Ctrl Keys is done with override bindings (see toolbar.lua)
+function t.settings.changeFuncs:AllowCtrlKeys()
+    t.toolbar:UpdateKeys()
 end
 
 function t.settings.changeFuncs:NoFade()

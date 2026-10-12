@@ -28,8 +28,9 @@ function t.main:Init()
     t.main:SetBackdropBorderColor(.5,.5,.5)
     t.main:SetClampedToScreen(true)
     t.main:SetToplevel(true)
-    t.main:SetFlattensRenderLayers(true)
+    -- 3.3.5a: SetFlattensRenderLayers(true) removed (not in 3.3.5a; it only optimized drawing a faded window)
     t.main:SetHitRectInsets(-8,-8,-8,-8) -- make edges easier to grip for dragging
+    t.main:EnableMouse(true) -- 3.3.5a: setting a mouse script does not enable the mouse; without this the window can't be dragged
     
     -- movement
     t.main:SetScript("OnMouseDown",function(self,button,...)
@@ -94,12 +95,14 @@ function t.main:Init()
     end)
 
     -- setup fadein/fadeout when mouse not over window
-    t.main:SetAlpha(0)
+    t.main:SetChromeAlpha(0) -- 3.3.5a: was t.main:SetAlpha(0), see t.main:SetChromeAlpha()
+    t.main.fadeTarget = 0
     t.main.isFadedOut = true
     t.main.fadeTimer = 0
     t.main:UpdateFadeBehavior()
 
     t.main:SetScript("OnShow",function(self)
+        t.toolbar:UpdateKeys() -- 3.3.5a: ESC and Ctrl keys (see toolbar.lua)
         if t.settings.saved.SharePosition then
             if t.settings.saved.XPos and t.settings.saved.YPos then
                 self:ClearAllPoints()
@@ -112,22 +115,20 @@ function t.main:Init()
     end)
 
     t.main:SetScript("OnHide",function(self)
+        -- 3.3.5a: also save here; the window can be hidden without TinyPad:Toggle() (UI hidden with Alt+Z, then
+        -- logout), and t.pages:SavePage() only writes what the editor loaded and changed
+        t.pages:SavePage()
         if not t.settings.saved.NoFade then
             t.main.isFadedOut = true
-            t.main:SetAlpha(0)
+            t.main:SetChromeAlpha(0) -- 3.3.5a: was t.main:SetAlpha(0)
+            t.main.fadeTarget = 0
         end
+        t.toolbar:UpdateKeys() -- 3.3.5a: ESC and Ctrl keys (see toolbar.lua)
     end)
 
-    -- creates fadeout/fadein animations t.main.fadeout and t.main.fadein
-    for k,v in pairs({"fadeout","fadein"}) do
-        t.main[v] = t.main:CreateAnimationGroup()
-        t.main[v].alpha = t.main[v]:CreateAnimation("alpha")
-        t.main[v].alpha:SetFromAlpha(2-k)
-        t.main[v].alpha:SetToAlpha(k-1)
-        t.main[v].alpha:SetDuration(t.constants.FADE_INOUT_DURATION)
-        t.main[v].alpha:SetTarget(t.main)
-        t.main[v]:SetScript("OnFinished",function() t.main:SetAlpha(k-1) end)
-    end
+    -- 3.3.5a: the fadeout/fadein AnimationGroups are gone: 3.3.5a Alpha animations have no SetFromAlpha/SetToAlpha/
+    -- SetTarget (only SetChange), and they could only fade all of t.main, the editor text included. t.main:OnUpdate()
+    -- now moves the chrome alpha toward t.main.fadeTarget over FADE_INOUT_DURATION seconds.
 
     t.main:UpdateLock()
     t.main:UpdateScale()
@@ -138,11 +139,24 @@ end
 function t.main:UpdateLock()
     if t.settings.saved.Lock then
         t.main.resizeGrip:Hide()
-        t.main:SetBackdropBorderColor(0.25,0.25,0.25)
     else
         t.main.resizeGrip:Show()
-        t.main:SetBackdropBorderColor(.5,.5,.5)
     end
+    -- 3.3.5a: the border color (0.25 locked, 0.5 unlocked) is set with the chrome alpha
+    t.main:SetChromeAlpha(t.main.chromeAlpha or 1)
+    t.toolbar:UpdateKeys() -- 3.3.5a: ESC doesn't close a locked window
+end
+
+-- 3.3.5a: a child's alpha is always multiplied by its parent's (no SetIgnoreParentAlpha), so fading t.main would
+-- fade the editor text too. Instead only the window "chrome" around the editor fades: the window's own background
+-- and border, the toolbar and the resize grip. Panels (bookmarks, settings, search, confirm) keep the window faded in.
+function t.main:SetChromeAlpha(alpha)
+    t.main.chromeAlpha = alpha
+    local border = t.settings.saved.Lock and 0.25 or 0.5
+    t.main:SetBackdropColor(1,1,1,alpha)
+    t.main:SetBackdropBorderColor(border,border,border,alpha)
+    t.toolbar:SetAlpha(alpha)
+    t.main.resizeGrip:SetAlpha(alpha)
 end
 
 function t.main:UpdateScale()
@@ -151,13 +165,27 @@ end
 
 function t.main:UpdateTransparency()
     local alpha = t.settings.saved.Transparency and (t.settings.saved.Invisible and 0 or 0.5) or 1
-    t.editor:SetAlpha(alpha)
+    -- 3.3.5a: was t.editor:SetAlpha(alpha) with the editbox ignoring its parent's alpha. Without SetIgnoreParentAlpha
+    -- that would fade the text as well, so the editor's background, border, scrollbar and title get the alpha and
+    -- the editbox (the text) stays opaque. (t.editor:Init() calls this again once those parts exist.)
+    if not t.editor.scrollFrame then
+        return
+    end
+    t.editor:SetBackdropColor(0.1,0.1,0.1,alpha)
+    t.editor:SetBackdropBorderColor(0.5,0.5,0.5,alpha)
+    t.editor.scrollFrame.scrollBar:SetAlpha(alpha)
+    t.editor.gutterLeft:SetAlpha(alpha)
+    t.editor.gutterRight:SetAlpha(alpha)
+    t.editor.titleBackground:SetAlpha(alpha)
+    t.editor.titleBorder:SetAlpha(alpha)
+    t.editor.titleText:SetAlpha(alpha)
 end
 
 function t.main:UpdateFadeBehavior()
     if t.settings.saved.NoFade then
-        t.main:SetAlpha(1)
-        t.main.isFadeOut = false
+        t.main:SetChromeAlpha(1) -- 3.3.5a: was t.main:SetAlpha(1)
+        t.main.fadeTarget = 1
+        t.main.isFadedOut = false -- 3.3.5a: upstream typo isFadeOut fixed
         t.main:SetScript("OnUpdate",nil)
     else
         if MouseIsOver(t.main) then
@@ -171,16 +199,27 @@ end
 function t.main:OnUpdate(elapsed)
     t.main.fadeTimer = t.main.fadeTimer + elapsed
     if t.main.fadeTimer > t.constants.FADE_TICKER_DURATION then
-        t.main.fadetimer = 0
+        t.main.fadeTimer = 0 -- 3.3.5a: upstream typo fadetimer fixed (the check ran every frame and restarted the fade)
         -- if mouse is over the frame or resize grip, or a panel is open, or the main editbox has focus
         local isOver = MouseIsOver(t.main) or t.main.isOver or t.main.resizeGrip.isOver or t.layout.currentLayout~="default" or t.editor.editBox:HasFocus()
-        if isOver and (t.main.isFadedOut or t.main:GetAlpha()<0.1) then -- GetAlpha to double check that we didn't get out of sync
+        if isOver and (t.main.isFadedOut or t.main.chromeAlpha<0.1) then -- alpha to double check that we didn't get out of sync
             t.main.isFadedOut = false
-            t.main.fadein:Play()
-        elseif not isOver and (not t.main.isFadedOut or t.main:GetAlpha()>0.1) then
+            t.main.fadeTarget = 1 -- 3.3.5a: was t.main.fadein:Play()
+        elseif not isOver and (not t.main.isFadedOut or t.main.chromeAlpha>0.1) then
             t.main.isFadedOut = true
-            t.main.fadeout:Play()
+            t.main.fadeTarget = 0 -- 3.3.5a: was t.main.fadeout:Play()
         end
+    end
+    -- 3.3.5a: the fade itself, a linear change of the chrome alpha over FADE_INOUT_DURATION seconds
+    local alpha = t.main.chromeAlpha
+    if alpha~=t.main.fadeTarget then
+        local change = elapsed/t.constants.FADE_INOUT_DURATION
+        if t.main.fadeTarget>alpha then
+            alpha = min(t.main.fadeTarget,alpha+change)
+        else
+            alpha = max(t.main.fadeTarget,alpha-change)
+        end
+        t.main:SetChromeAlpha(alpha)
     end
 end
 

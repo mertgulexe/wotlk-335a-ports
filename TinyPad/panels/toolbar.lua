@@ -34,48 +34,126 @@ function t.toolbar:Init()
     t.toolbar.pageNumber = t.toolbar:CreateFontString(nil,"ARTWORK","GameFontHighlight")
     t.toolbar.pageNumber:SetPoint("CENTER",t.toolbar,"CENTER",25-13,0)
 
-    -- rather than put TinyPad in UISpecialFrames, attaching esc functionality to close button
-    t.toolbar.closeButton:SetScript("OnKeyDown",function(self,key)
-        -- if key is ESC (or whatever remapped to) and in default layout, then toggle(hide) window
-        if key==GetBindingKey("TOGGLEGAMEMENU") then
-            if t.layout.currentLayout=="bookmarks" and t.bookmarks.titleEditBox:HasFocus() then
-                t.bookmarks:ShowAddRemoveButton() -- special case, don't close bookmarks, just return to add/remove button
-                self:SetPropagateKeyboardInput(false)
-                return
-            elseif t.layout.currentLayout~="default" and (not t.settings.saved.PinBookmarks or t.layout.currentLayout~="bookmarks") then
-                t.layout:Show("default")
-                self:SetPropagateKeyboardInput(false)
-                return
-            elseif not t.settings.saved.Lock then
-                TinyPad:Toggle()
-                self:SetPropagateKeyboardInput(false)
-                return
-            end
+    -- 3.3.5a: the close button's OnKeyDown (ESC, Allow Ctrl Keys) is gone. 3.3.5a has no SetPropagateKeyboardInput:
+    -- a frame that gets keys keeps every key, movement included, while TinyPad is on screen. Instead:
+    -- ESC: this helper frame is in UISpecialFrames and is shown while ESC has something to do in TinyPad. Every
+    -- CloseAllWindows() hides it: the one of the ESC key (TOGGLEGAMEMENU binding -> ToggleGameMenu), but also
+    -- Blizzard's own (loading screens, death, loss of control, the world map, the main menu button). Its OnHide only
+    -- notes the hide; a post-hook on ToggleGameMenu does what the OnKeyDown did for ESC, any other hide just shows
+    -- the helper again a frame later.
+    t.toolbar.escapeHandler = CreateFrame("Frame","TinyPadEscapeHandler")
+    t.toolbar.escapeHandler:Hide()
+    t.toolbar.escapeHandler:SetScript("OnHide",t.toolbar.EscapeHandlerOnHide)
+    tinsert(UISpecialFrames,"TinyPadEscapeHandler")
+    hooksecurefunc("ToggleGameMenu",t.toolbar.ToggleGameMenuPostHook)
+    -- Allow Ctrl Keys: while TinyPad is on screen, override bindings for the keys in t.constants.CTRL_KEY_BINDINGS
+    -- click this button (it has no size; it is a child of the window so it is only visible with it)
+    t.toolbar.keyButton = CreateFrame("Button","TinyPadKeyButton",t.main)
+    t.toolbar.keyButton:EnableMouse(false)
+    t.toolbar.keyButton:RegisterForClicks("AnyDown","AnyUp")
+    t.toolbar.keyButton:SetScript("OnClick",t.toolbar.KeyButtonOnClick)
+    -- override bindings can't change in combat: they are removed when combat starts and restored when it ends
+    t.toolbar.keyButton:RegisterEvent("PLAYER_REGEN_DISABLED")
+    t.toolbar.keyButton:RegisterEvent("PLAYER_REGEN_ENABLED")
+    t.toolbar.keyButton:SetScript("OnEvent",t.toolbar.UpdateKeys)
+
+end
+
+-- 3.3.5a: shows/hides the ESC helper frame and sets/clears the Ctrl key override bindings; called when the window
+-- shows or hides, the layout changes, Lock or Allow Ctrl Keys changes, and on combat start/end
+function t.toolbar:UpdateKeys(event)
+    local escapeHandler = t.toolbar.escapeHandler
+    if not escapeHandler then
+        return -- toolbar not initialized yet
+    end
+    local onScreen = t.main:IsVisible() and true or false
+    if onScreen and not t.toolbar.wasOnScreen then
+        t.toolbar.onScreenTime = GetTime() -- the frame in which the window appeared (see EscapeHandlerOnHide)
+    end
+    t.toolbar.wasOnScreen = onScreen
+    -- ESC closes an open panel (except pinned bookmarks); otherwise it closes the window unless it's locked
+    if not escapeHandler.isHandlingEscape then -- (EscapeHandlerAfterHide updates it a frame later)
+        local layout = t.layout.currentLayout
+        local panelOpen = layout and layout~="default" and (not t.settings.saved.PinBookmarks or layout~="bookmarks")
+        local wantEscape = onScreen and (panelOpen or not t.settings.saved.Lock) and true or false
+        if wantEscape~=(escapeHandler:IsShown() and true or false) then
+            escapeHandler.isUpdating = true -- OnHide: this is not an ESC
+            t.compat.SetShown(escapeHandler,wantEscape)
+            escapeHandler.isUpdating = nil
         end
-
-        if IsControlKeyDown() and t.settings.saved.AllowCtrlKeys then
-            if key=="Z" then
-                t.toolbar:UndoButtonOnClick()
-                self:SetPropagateKeyboardInput(false)
-                return
-            elseif key=="Y" then
-                t.toolbar:RedoButtonOnClick()
-                self:SetPropagateKeyboardInput(false)
-                return
-            elseif key=="F" then
-                t.toolbar:SearchButtonOnClick()
-                self:SetPropagateKeyboardInput(false)
-                return
-            elseif key=="N" then
-                t.toolbar:NewPageButtonOnClick()
-                self:SetPropagateKeyboardInput(false)
-                return
-            end
+    end
+    -- Ctrl keys
+    local keyButton = t.toolbar.keyButton
+    if event~="PLAYER_REGEN_DISABLED" and InCombatLockdown() then
+        return -- bindings can't change in combat; they were removed at PLAYER_REGEN_DISABLED
+    end
+    local wantKeys = onScreen and t.settings.saved.AllowCtrlKeys and event~="PLAYER_REGEN_DISABLED"
+    if wantKeys and not keyButton.isBound then
+        for key,action in pairs(t.constants.CTRL_KEY_BINDINGS) do
+            SetOverrideBindingClick(keyButton,true,key,"TinyPadKeyButton",action)
         end
+        keyButton.isBound = true
+    elseif not wantKeys and keyButton.isBound then
+        ClearOverrideBindings(keyButton)
+        keyButton.isBound = false
+    end
+end
 
-        self:SetPropagateKeyboardInput(true)
-    end)
+-- 3.3.5a: a CloseAllWindows() hid TinyPadEscapeHandler. Whether that was the ESC key is only known when
+-- ToggleGameMenu returns (ToggleGameMenuPostHook); until then this is only noted. A hide in the frame in which the
+-- window appeared is not an ESC for TinyPad: ESC that brings back a hidden UI (Alt+Z) shows UIParent, whose OnShow
+-- closes all windows.
+function t.toolbar:EscapeHandlerOnHide()
+    if self.isUpdating then
+        return -- hidden by t.toolbar:UpdateKeys()
+    end
+    self.closePending = t.toolbar.onScreenTime~=GetTime() or nil
+    t.compat.After(0,t.toolbar.EscapeHandlerAfterHide)
+end
 
+-- 3.3.5a: after every ToggleGameMenu(), the function of the ESC key. If its CloseAllWindows() hid the ESC helper,
+-- do what the close button's OnKeyDown did for ESC. (Its first case, ESC in the bookmark title editbox, is handled
+-- by that editbox: OnEscapePressed clears the focus and the focus-lost timer goes back to the Add/Remove button.)
+function t.toolbar.ToggleGameMenuPostHook()
+    local escapeHandler = t.toolbar.escapeHandler
+    if not escapeHandler.closePending then
+        return
+    end
+    escapeHandler.closePending = nil
+    escapeHandler.isHandlingEscape = true
+    if t.layout.currentLayout~="default" and (not t.settings.saved.PinBookmarks or t.layout.currentLayout~="bookmarks") then
+        t.layout:Show("default")
+    elseif not t.settings.saved.Lock then
+        TinyPad:Toggle()
+    end
+    escapeHandler.isHandlingEscape = nil
+end
+
+-- 3.3.5a: the frame after the ESC helper was hidden. A hide that ToggleGameMenu did not claim was Blizzard closing
+-- its windows (zoning, death, fear, the world map...): TinyPad and its panel stay open. Either way the helper is
+-- shown again if ESC still has something to do.
+function t.toolbar.EscapeHandlerAfterHide()
+    t.toolbar.escapeHandler.closePending = nil
+    t.toolbar:UpdateKeys()
+end
+
+-- 3.3.5a: click of TinyPadKeyButton by a Ctrl key override binding; the binding passes the action as the "mouse
+-- button". Acts once per key press whether the client clicks on key down, key up or both.
+function t.toolbar:KeyButtonOnClick(action,down)
+    if not down and self.downAction==action then
+        self.downAction = nil
+        return -- key up of a key press handled on key down
+    end
+    self.downAction = down and action or nil
+    if action=="Undo" then
+        t.toolbar:UndoButtonOnClick()
+    elseif action=="Redo" then
+        t.toolbar:RedoButtonOnClick()
+    elseif action=="Search" then
+        t.toolbar:SearchButtonOnClick()
+    elseif action=="New" then
+        t.toolbar:NewPageButtonOnClick()
+    end
 end
 
 function t.toolbar:Resize(width,height)
@@ -87,10 +165,10 @@ function t.toolbar:Resize(width,height)
     local showUndoButton = width >= t.constants.MIN_WIDTH_FOR_UNDO_BUTTON
     local showSearchButton = width >= t.constants.MIN_WIDTH_FOR_SEARCH_BUTTON
 
-    t.toolbar.pageNumber:SetShown(showPageNumber)
-    t.toolbar.redoButton:SetShown(showRedoButton)
-    t.toolbar.undoButton:SetShown(showUndoButton)
-    t.toolbar.searchButton:SetShown(showSearchButton)
+    t.compat.SetShown(t.toolbar.pageNumber,showPageNumber) -- 3.3.5a: was :SetShown() (4 lines)
+    t.compat.SetShown(t.toolbar.redoButton,showRedoButton)
+    t.compat.SetShown(t.toolbar.undoButton,showUndoButton)
+    t.compat.SetShown(t.toolbar.searchButton,showSearchButton)
 
     local numLeftButtons = 3+(showUndoButton and 1 or 0)+(showRedoButton and 1 or 0)
     local numRightButtons = 3+(showSearchButton and 1 or 0)

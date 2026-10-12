@@ -63,6 +63,22 @@ t.constants.TOOLTIP_SUBTEXT_COLOR = "\124cffaaaaaa"
 -- on an EditFocusLost, the time before a decision is made on whether focus has returned
 t.constants.EDIT_FOCUS_TIMER = 0.1
 
+-- 3.3.5a: "Allow Ctrl Keys" override bindings while TinyPad is on screen: key = action for t.toolbar:KeyButtonOnClick
+-- (Shift is passed on: Ctrl+Shift+Z undoes all, Ctrl+Shift+N inserts the new page after the current page)
+t.constants.CTRL_KEY_BINDINGS = {
+    ["CTRL-Z"] = "Undo", ["CTRL-SHIFT-Z"] = "Undo",
+    ["CTRL-Y"] = "Redo", ["CTRL-SHIFT-Y"] = "Redo",
+    ["CTRL-F"] = "Search", ["CTRL-SHIFT-F"] = "Search",
+    ["CTRL-N"] = "New", ["CTRL-SHIFT-N"] = "New",
+}
+
+-- 3.3.5a: font used when the client can't load the chosen font file (Inconsolata.otf is an OpenType/CFF font)
+t.constants.FALLBACK_FONT = "Fonts\\ARIALN.TTF"
+
+-- 3.3.5a: a click into the pad deactivates an open chat edit box; a Shift+click on a link within this many seconds
+-- reopens that chat edit box to copy the link into it
+t.constants.CHAT_LINK_RESTORE_TIME = 1
+
 -- default position (angle) of the minimap button
 t.constants.DEFAULT_MINIMAP_POSITION = -65
 

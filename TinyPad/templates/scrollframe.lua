@@ -6,10 +6,16 @@ t.scrollFrame = {}
 
 -- this creates a scrollframe with a scrollbar that hides/shows when it's needed, and adjust the scrollchild to the scrollbar visibility.
 -- if premadeScrollChild is passed, that will be used as a scrollchild (and size adjusted for scrollbar visibility)
-function t.scrollFrame:Create(parent,premadeScrollChild)
+-- 3.3.5a: name is new; the 3.3.5a UIPanelScrollFrameTemplate only works on a named scrollframe (its OnLoad and
+-- scripts find the scrollbar as <name>.."ScrollBar"; there is no ScrollBar parentKey)
+function t.scrollFrame:Create(parent,premadeScrollChild,name)
 
-    local scrollFrame = CreateFrame("ScrollFrame",nil,parent,"UIPanelScrollFrameTemplate")
-    scrollFrame.scrollBar = scrollFrame.ScrollBar -- for naming consistentcy
+    if not name then
+        t.scrollFrame.numUnnamed = (t.scrollFrame.numUnnamed or 0) + 1
+        name = "TinyPadScrollFrame"..t.scrollFrame.numUnnamed
+    end
+    local scrollFrame = CreateFrame("ScrollFrame",name,parent,"UIPanelScrollFrameTemplate")
+    scrollFrame.scrollBar = _G[name.."ScrollBar"] -- for naming consistentcy (3.3.5a: was scrollFrame.ScrollBar)
 
     -- moving the scrollbar inherited from UIPanelScrollFrameTemplate into the inside of the scrollFrame
     scrollFrame.scrollBar:ClearAllPoints()
@@ -29,19 +35,20 @@ function t.scrollFrame:Create(parent,premadeScrollChild)
     -- background of the scrollbar, that should be the same framelevel as the parent frame so it draws beneath the rounded border
     scrollFrame.scrollBar.gutter = CreateFrame("Frame",nil,scrollFrame.scrollBar)
     scrollFrame.scrollBar.gutter:SetFrameLevel(parent:GetFrameLevel())
-    scrollFrame.scrollBar.gutter:SetAllPoints(true)
+    scrollFrame.scrollBar.gutter:SetAllPoints(scrollFrame.scrollBar) -- 3.3.5a: was SetAllPoints(true)
     -- left gradient texture that meets right in center of gutter
-    scrollFrame.scrollBar.gutter.left = scrollFrame.scrollBar.gutter:CreateTexture(nil,"BACKGROUND",nil,2)
+    -- (3.3.5a: no texture sublevels, 4th CreateTexture argument dropped; upper case SetGradient orientation)
+    scrollFrame.scrollBar.gutter.left = scrollFrame.scrollBar.gutter:CreateTexture(nil,"BACKGROUND")
     scrollFrame.scrollBar.gutter.left:SetPoint("TOPLEFT",-4,19)
     scrollFrame.scrollBar.gutter.left:SetPoint("BOTTOMRIGHT",scrollFrame.scrollBar.gutter,"BOTTOM",0,-19)
     scrollFrame.scrollBar.gutter.left:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
-    scrollFrame.scrollBar.gutter.left:SetGradient("horizontal",0.07,0.07,0.07,0.1,0.1,0.1)
+    scrollFrame.scrollBar.gutter.left:SetGradient("HORIZONTAL",0.07,0.07,0.07,0.1,0.1,0.1)
     -- right gradient texture that meets left in center of gutter
-    scrollFrame.scrollBar.gutter.right = scrollFrame.scrollBar.gutter:CreateTexture(nil,"BACKGROUND",nil,2)
+    scrollFrame.scrollBar.gutter.right = scrollFrame.scrollBar.gutter:CreateTexture(nil,"BACKGROUND")
     scrollFrame.scrollBar.gutter.right:SetPoint("TOPLEFT",scrollFrame.scrollBar.gutter,"TOP",0,19)
     scrollFrame.scrollBar.gutter.right:SetPoint("BOTTOMRIGHT",2,-19)
     scrollFrame.scrollBar.gutter.right:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
-    scrollFrame.scrollBar.gutter.right:SetGradient("horizontal",0.1,0.1,0.1,0.07,0.07,0.07)
+    scrollFrame.scrollBar.gutter.right:SetGradient("HORIZONTAL",0.1,0.1,0.1,0.07,0.07,0.07)
 
     -- if an existing scrollchild already made, use that
     if premadeScrollChild then

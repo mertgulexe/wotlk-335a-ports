@@ -59,10 +59,10 @@ end
 
 function t.searchbar:SearchOnTextChanged()
     local hasText = t.searchbar.searchBox:GetText():trim():len() > 0
-    t.searchbar.searchBox.instructions:SetShown(not hasText)
-    t.searchbar.searchBox.clearButton:SetShown(hasText)
+    t.compat.SetShown(t.searchbar.searchBox.instructions,not hasText) -- 3.3.5a: was :SetShown() (3 lines)
+    t.compat.SetShown(t.searchbar.searchBox.clearButton,hasText)
     t.buttons:SetEnabled(t.searchbar.searchButton,hasText)
-    t.searchbar.searchBox.count:SetShown(hasText)
+    t.compat.SetShown(t.searchbar.searchBox.count,hasText)
     if hasText then
         -- update the number of search hits in the instruction-like text within searchBox
         local count = t.pages:FindCount(t.searchbar.searchBox:GetText())
@@ -76,7 +76,7 @@ end
 
 -- clicking elsewhere will lose focus from the editbox; hide searchbar if it hasn't gotten focus back or a button is being clicked
 function t.searchbar:SearchOnEditFocusLost()
-    C_Timer.After(t.constants.EDIT_FOCUS_TIMER,function()
+    t.compat.After(t.constants.EDIT_FOCUS_TIMER,function() -- 3.3.5a: was C_Timer.After
         local clickingSearchButton = GetMouseFocus()==t.searchbar.searchButton -- special case for potentially disabled search button
         if not t.searchbar.searchBox:HasFocus() and t.searchbar:IsVisible() and not t.buttons.isButtonBeingClicked and not clickingSearchButton and not t.main.isSizing and not t.main.isMoving then
             t.layout:Hide("searchbar")

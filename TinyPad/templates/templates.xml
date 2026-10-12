@@ -69,7 +69,8 @@
     </Button>
 
     <!-- TinyPadEditBoxTemplate : editbox with background but no clear button or instructions -->
-    <EditBox name="TinyPadEditBoxTemplate" autofocus="false" virtual="true">
+    <!-- 3.3.5a: attribute spelled autoFocus (autofocus is ignored) -->
+    <EditBox name="TinyPadEditBoxTemplate" autoFocus="false" virtual="true">
         <Size x="60" y="24"/>
 		<TextInsets>
 			<AbsInset left="7" right="7" top="1" bottom="1"/>
@@ -99,7 +100,8 @@
                 </Texture>
             </Layer>
         </Layers>
-		<FontString inherits="NumberFont_Small"/>
+		<!-- 3.3.5a: NumberFont_Small does not exist in 3.3.5a (here and below); NumberFont_Shadow_Small is Arial Narrow 12 -->
+		<FontString inherits="NumberFont_Shadow_Small"/>
         <Scripts>
             <OnEscapePressed>
                 self:ClearFocus()
@@ -114,7 +116,7 @@
 		</TextInsets>
         <Layers>
             <Layer level="ARTWORK">
-                <FontString parentKey="instructions" inherits="NumberFont_Small" text="Instructions">
+                <FontString parentKey="instructions" inherits="NumberFont_Shadow_Small" text="Instructions">
                     <Anchors>
                         <Anchor point="LEFT" x="10" y="0"/>
                     </Anchors>
@@ -287,8 +289,9 @@
     <Frame name="TinyPadFlashTemplate" setAllPoints="true" alpha="0" virtual="true">
         <Animations>
             <AnimationGroup parentKey="animation">
-                <Alpha fromAlpha="0" toAlpha="0.5" duration="0.125" order="1"/>
-                <Alpha fromAlpha="0.5" toAlpha="0" duration="0.125" order="2"/>
+                <!-- 3.3.5a: Alpha animations take a change relative to the frame's alpha (0); fromAlpha/toAlpha are ignored -->
+                <Alpha change="0.5" duration="0.125" order="1"/>
+                <Alpha change="-0.5" duration="0.125" order="2"/>
                 <Scripts>
                     <OnFinished>
                         self:GetParent():SetAlpha(0)

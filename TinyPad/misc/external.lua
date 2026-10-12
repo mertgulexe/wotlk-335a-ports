@@ -106,12 +106,14 @@ function TinyPad:Insert(body,pageNum,title)
         t.init:Initialize()
     end
     t.pages:SavePage() -- going past here, save whatever work was done
+    -- 3.3.5a port (notes import): the moves below pass dontSave (already saved above); saving again after inserting
+    -- at or before the current page wrote the editor into the shifted slot and overwrote the previous page
     if not pageNum then -- ("body")
         tinsert(t.pages.saved,body)
-        t.pages:GoToLastPage()
+        t.pages:GoToLastPage(true)
     elseif type(pageNum)=="string" then -- ("body","title")
         tinsert(t.pages.saved,{pageNum,body}) -- pageNum is "title"
-        t.pages:GoToLastPage()
+        t.pages:GoToLastPage(true)
     elseif type(pageNum)=="number" then -- pageNum is an actual pageNum
         pageNum = max(1,min(#t.pages.saved+1,pageNum))
         if not title then
@@ -119,7 +121,7 @@ function TinyPad:Insert(body,pageNum,title)
         else
             tinsert(t.pages.saved,pageNum,{title,body}) -- ("body",<number>,"title")
         end
-        t.pages:GoToPage(pageNum)
+        t.pages:GoToPage(pageNum,true)
     end
     if not t.main:IsVisible() then
         TinyPad:Toggle()

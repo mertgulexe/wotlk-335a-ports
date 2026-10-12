@@ -12,7 +12,7 @@ t.init:SetScript("OnEvent",function(self,event)
     if event=="PLAYER_LOGIN" then
         t.init:RunAll("LoginInit")
         if t.settings.saved.OpenOnLogin then
-            C_Timer.After(1,TinyPad.Toggle)
+            t.compat.After(1,TinyPad.Toggle) -- 3.3.5a: was C_Timer.After (misc\compat.lua)
         end
     elseif event=="PLAYER_LOGOUT" and t.main:IsVisible() then -- if page on screen, it may not have been saved yet
         t.pages:SavePage()
@@ -53,7 +53,9 @@ end
 -- a 0-frame timer to wait to run the module:Resize() functions.
 function t.init:ResizeAll()
     if not t.init.isResizing then
-        t.init.isResizing = C_Timer.NewTimer(0,t.init.DelayedResizeAll)
+        -- 3.3.5a: was isResizing = C_Timer.NewTimer(0,t.init.DelayedResizeAll); the timer object was only used as a flag
+        t.init.isResizing = true
+        t.compat.After(0,t.init.DelayedResizeAll)
     end
 end
 

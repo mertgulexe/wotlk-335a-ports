@@ -33,7 +33,7 @@ function t.minimap:LoginInit()
 
     t.minimap:UpdatePosition()
 
-    t.minimap:SetShown(t.settings.saved.ShowMinimapButton)
+    t.compat.SetShown(t.minimap,t.settings.saved.ShowMinimapButton) -- 3.3.5a: was :SetShown()
 
 end
 
