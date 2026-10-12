@@ -40,8 +40,8 @@ local BlockScrollPlayer		= {}
 local BlockScrollText		= {}
 local BlockScrollDate		= {}
 local WINDOW_WIDTH			= 734
-local WINDOW_HEIGHT			= 414	-- 3.3.5a: was 400; the dialog border is thicker, so 14 px more room for the bottom buttons
-local WINDOW_OFFSET			= 127	-- 3.3.5a: was 113; raised with WINDOW_HEIGHT so the list areas keep their size
+local WINDOW_HEIGHT			= 409	-- 3.3.5a: was 400; the dialog border is thicker, so 9 px more room for the bottom buttons
+local WINDOW_OFFSET			= 122	-- 3.3.5a: was 113; raised with WINDOW_HEIGHT so the list areas keep their size
 local BUTTON_HEIGHT			= 20
 local BUTTON_TOTAL			= math.floor((WINDOW_HEIGHT - WINDOW_OFFSET) / BUTTON_HEIGHT)
 local BUTTON_WIDTH			= WINDOW_WIDTH - 44
@@ -324,6 +324,7 @@ StaticPopupDialogs["GIL_FILTERREMOVE"] = {
 			return
 		end
 		
+		M.MarkFilterRemoved(FilterScrollSelect) -- 3.3.5a port: auto-update won't add it back
 		M.RemoveChatFilter(FilterScrollSelect)
 		M.FilterListDrawUpdate(FilterScrollFrame)
 	end,	
@@ -1447,7 +1448,7 @@ local function CreateUIFrames()
 	
 	Button1:SetSize(110, 22)
 	Button1:SetText(L["BUT_1"])
-	Button1:SetPoint("BOTTOMRIGHT", -5, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
+	Button1:SetPoint("BOTTOMRIGHT", -2, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
 	Button1:SetScript("OnClick", function(self) ButtonIgnoreRemove() end)
 	
 	local Button2 = CreateFrame("Button", "GILFrame1PruneButton", Tab1Frame, "UIPanelButtonTemplate")
@@ -1503,7 +1504,7 @@ local function CreateUIFrames()
 	local Button = CreateFrame("Button", "GILFrame2CreateButton", Tab2Frame, "UIPanelButtonTemplate")
 	Button:SetSize(110, 22)
 	Button:SetText(L["BUT_5"])
-	Button:SetPoint("BOTTOMRIGHT", -5, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
+	Button:SetPoint("BOTTOMRIGHT", -2, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
 	Button:SetScript("OnClick",
 		function(self)
 			local idx = #GlobalIgnoreDB.filterList + 1
@@ -1543,7 +1544,7 @@ local function CreateUIFrames()
 	Button:SetSize(110, 22)
 	Button:SetText(L["BUT_7"])
 	--Button:SetPoint("RIGHT", "GILFrame2BlockButton", "LEFT", 0, 0)
-	Button:SetPoint("BOTTOMLEFT", 5, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
+	Button:SetPoint("BOTTOMLEFT", 2, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
 	Button:SetScript("OnClick",
 		function(self)
 			StaticPopup_Show("GIL_FILTERRESET", L["BOX_4"])
@@ -1573,7 +1574,7 @@ local function CreateUIFrames()
 		
 	Button:SetSize(110, 22)
 	Button:SetText("Cancel")
-	Button:SetPoint("BOTTOMRIGHT", -5, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
+	Button:SetPoint("BOTTOMRIGHT", -2, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
 	Button:SetScript("OnClick",
 		function(self)
 			M.FilterScrollChangeState(0)
@@ -1592,7 +1593,8 @@ local function CreateUIFrames()
 			GlobalIgnoreDB.filterDesc[FilterScrollSelect] = Tab2EditDesc
 			GlobalIgnoreDB.filterList[FilterScrollSelect] = Tab2EditFilter
 			GlobalIgnoreDB.filterActive[FilterScrollSelect] = Tab2EditActive
-			
+			M.MarkFilterEdited(FilterScrollSelect) -- 3.3.5a port: auto-update keeps the user's version
+
 			M.FilterScrollChangeState(0)
 		end
 	)
@@ -1823,7 +1825,7 @@ local function CreateUIFrames()
 	local Button = CreateFrame("Button", "GILFrame2BlockCloseButton", Tab2FrameBlock, "UIPanelButtonTemplate")
 	Button:SetSize(110, 22)
 	Button:SetText(L["BUT_10"])
-	Button:SetPoint("BOTTOMRIGHT", -5, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
+	Button:SetPoint("BOTTOMRIGHT", -2, -24) -- 3.3.5a: was -1; keeps the button off the dialog border
 	Button:SetScript("OnClick", function(self)
 		M.FilterScrollChangeState(0)
 	end)

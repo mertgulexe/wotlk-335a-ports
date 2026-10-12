@@ -283,8 +283,31 @@ local function isDefFilterID (id)
 			return count
 		end
 	end
-	
+
 	return 0
+end
+
+-- 3.3.5a port: the default-filter auto-update leaves built-in filters alone that the user edited or
+-- removed (it used to put the stock text back, and re-add removed filters, at every login).
+-- Reset Defaults clears both lists.
+function M.MarkFilterEdited (index)
+	local id  = GlobalIgnoreDB.filterID[index]
+	local def = isDefFilterID(id)
+
+	if def > 0 then
+		GlobalIgnoreDB.filterUserEdited = GlobalIgnoreDB.filterUserEdited or {}
+		local changed = GlobalIgnoreDB.filterDesc[index] ~= filterDefDesc[def] or GlobalIgnoreDB.filterList[index] ~= filterDefFilter[def]
+		GlobalIgnoreDB.filterUserEdited[id] = changed or nil
+	end
+end
+
+function M.MarkFilterRemoved (index)
+	local id = GlobalIgnoreDB.filterID[index]
+
+	if isDefFilterID(id) > 0 then
+		GlobalIgnoreDB.filterUserRemoved = GlobalIgnoreDB.filterUserRemoved or {}
+		GlobalIgnoreDB.filterUserRemoved[id] = true
+	end
 end
 
 local function hasIgnored (name)
@@ -449,7 +472,9 @@ function M.ResetSpamFilters()
 	GlobalIgnoreDB.filterID				= {}
 	GlobalIgnoreDB.filterBlocked		= {}
 	GlobalIgnoreDB.filterBlockedLast	= {}
-	
+	GlobalIgnoreDB.filterUserEdited		= {} -- 3.3.5a port: see M.MarkFilterEdited
+	GlobalIgnoreDB.filterUserRemoved	= {}
+
 	GlobalIgnoreDB.invertSpam = false
 	GlobalIgnoreDB.spamFilter = true
 	GlobalIgnoreDB.autoUpdate = true
@@ -1199,11 +1224,17 @@ local function ApplicationStartup(self)
 	if GlobalIgnoreDB.autoUpdate == true then
 	
 		-- Add new and update existing default chat filters, if enabled
+		-- 3.3.5a port: except built-in filters the user edited or removed (M.MarkFilterEdited/Removed)
+
+		local userEdited  = GlobalIgnoreDB.filterUserEdited or {}
+		local userRemoved = GlobalIgnoreDB.filterUserRemoved or {}
 
 		for count = 1, #filterDefDesc do
 			local found = hasFilterID(filterDefID[count])
-	
-			if (found == 0) then
+
+			if (found == 0) and userRemoved[filterDefID[count]] then
+				-- removed by the user: don't add it back
+			elseif (found == 0) then
 				M.ShowMsg (format(L["SYNC_3"], filterDefDesc[count]))
 	
 				GlobalIgnoreDB.filterDesc[#GlobalIgnoreDB.filterDesc + 1]		= filterDefDesc[count]
@@ -1214,7 +1245,7 @@ local function ApplicationStartup(self)
 				GlobalIgnoreDB.filterBlocked[#GlobalIgnoreDB.filterBlocked + 1]	= {}
 				GlobalIgnoreDB.filterBlockedLast[#GlobalIgnoreDB.filterBlockedLast + 1] = 0
 				
-			elseif GlobalIgnoreDB.filterDesc[found] ~= filterDefDesc[count] or GlobalIgnoreDB.filterList[found] ~= filterDefFilter[count] then
+			elseif not userEdited[filterDefID[count]] and (GlobalIgnoreDB.filterDesc[found] ~= filterDefDesc[count] or GlobalIgnoreDB.filterList[found] ~= filterDefFilter[count]) then
 				M.ShowMsg (format(L["SYNC_5"], filterDefDesc[count]))
 				
 				GlobalIgnoreDB.filterDesc[found] = filterDefDesc[count]
