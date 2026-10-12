@@ -32,6 +32,9 @@ t.settings.fonts = {
     {"Inconsolatas","Interface\\AddOns\\TinyPad\\media\\Inconsolata.otf",11,12,14},
     {"Morpheus","Fonts\\MORPHEUS.ttf",12,14,18},
     {"Skurri","Fonts\\skurri.ttf",11,14,18},
+    -- added for 3.3.5a: covers Turkish (G/g breve, dotted I, S/s cedilla) and other Latin Extended letters that Friz Quadrata lacks.
+    -- Kept last so saved FontFamily indices of the fonts above stay valid. Roboto Mono, SIL OFL 1.1 (media\RobotoMono-OFL.txt)
+    {"Roboto Mono","Interface\\AddOns\\TinyPad\\media\\RobotoMono-Regular.ttf",11,12,14},
 }
 
 -- options definitions can be one of these:
