@@ -47,8 +47,8 @@ WDM's original source is [Trimitor/WDM-addons](https://github.com/Trimitor/WDM-a
 
 ## Disclaimer
 
-- **I don't own any of these addons.** All credit and rights belong to their original authors, listed above. Thank you to every one of them for their work.
+- **I don't own any of these addons.** All credit and rights belong to their original authors, listed above, and to the creators of the font and data added to some of them. Thank you to every one of them for their work.
 - The changes here are a **hobby project**, made for personal use and shared as-is, without any warranty.
 - This repository is not affiliated with or endorsed by the addon authors or Blizzard Entertainment. World of Warcraft is a trademark of Blizzard Entertainment.
-- Each addon keeps its original license. Where an addon ships without a license, all rights remain with its author.
+- Each addon keeps its original license, and added parts keep theirs: AtlasLootRevival's WotLK data comes from GPL-licensed sources (AtlasLoot Enhanced, Questie), and TinyPad's Roboto Mono font is under the SIL Open Font License. Where an addon ships without a license, all rights remain with its author.
 - **If you are an author** and want your addon removed or credited differently, please open an issue and it will be taken care of.
