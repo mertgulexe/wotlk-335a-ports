@@ -18,7 +18,7 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | AtlasLootRevival | AtlasLoot Revival contributors | **Ported** | From Classic Era / TBC Anniversary (0.2.4) to 3.3.5a, with WotLK dungeons and raids added. Details in [`AtlasLootRevival/CHANGES_3.3.5a.md`](AtlasLootRevival/CHANGES_3.3.5a.md). The WotLK loot lists are derived from AtlasLoot Enhanced (GPL v2). |
 | TinyPad | Gello | **Ported** (in progress) | 3.0.19 brought to 3.3.5a. |
 | GlobalIgnoreList | IceyPop | **Ported** (in progress) | 11.2.7.1 brought to 3.3.5a. |
-| WDM (WoW Dungeon Maps) | Trimitor | **Fixed** | Opening the world map in combat no longer causes "Interface action failed because of an AddOn" (taint fix). Changes are marked `-- 3.3.5a taint fix`. |
+| WDM (WoW Dungeon Maps) | Trimitor | **Fixed** | Opening the world map in combat no longer causes "Interface action failed because of an AddOn" (taint fix). Changes are marked `-- 3.3.5a taint fix`. Needs the WDM-patch MPQ files (see [Requirements](#requirements)). Original source: [Trimitor/WDM-addons](https://github.com/Trimitor/WDM-addons). |
 | Auctionator | Zirco | **Modified** | The "Scan AH" button on the tradeskill window is removed. |
 | AuctionatorMiniFeatures | ckaotik | **Fixed** | Its TOC no longer lists a missing `data.lua`, which caused a load error. |
 
@@ -43,4 +43,12 @@ These are stock copies, untouched:
 ## Installing
 
 Copy the addon folders into `World of Warcraft\Interface\AddOns`.
-AtlasLootRevival shows Classic and TBC dungeon maps only if a dungeon-map patch is installed, such as Trimitor's [WDM-patch](https://github.com/Trimitor/WDM-patch). The WotLK maps are part of the 3.3.5a client.
+
+## Requirements
+
+**WDM** and **AtlasLootRevival** need the Classic & TBC dungeon map patch by Trimitor. The MPQ files are not included here; get them from the original source, **[Trimitor/WDM-patch](https://github.com/Trimitor/WDM-patch)** (Releases), and place them in `World of Warcraft\Data\<yourLocale>\` (e.g. `Data\enUS\`):
+
+- `patch-<locale>-M.MPQ`: the main patch, which adds the Classic and TBC dungeon maps. Required for WDM, and for the Classic and TBC maps in AtlasLootRevival.
+- `patch-<locale>-N.MPQ`: optional "Caverns and Mines" maps, a beta release. It needs the M patch, WDM and !Astrolabe.
+
+Without the M patch, AtlasLootRevival still works, with WotLK maps (part of the 3.3.5a client) and all loot. Its Classic and TBC instances then show "Map image not found".
