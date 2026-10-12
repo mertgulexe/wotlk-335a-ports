@@ -1,0 +1,29 @@
+## Interface: 30300
+## Author: GrazyMonster
+## Credits: Original authors – karlsnyder, vallantv, SkunFly
+## Contributors: CosmicCleric
+## Version: 2.0.1-wotlk335 (based on 4.0.26)
+## Title: MinimapButtonBag-Reborn
+## X-Category: Map
+## X-Curse-Project-ID: 1443534
+## Notes: Cleans up minimap buttons and makes them accessible through a menu. Unofficial WoW 3.3.5a (WotLK) port.
+## Notes-deDE: Räumt Minimap-Schaltflächen auf und macht sie über ein Menü zugänglich.
+## Notes-frFR: Nettoie les boutons de la mini-carte et les rend accessibles via un menu.
+## Notes-itIT: Rimuove i pulsanti dalla minimappa e li rende accessibili tramite un menu.
+## Notes-ruRU: Очищает миникарту от кнопок и делает их доступными через меню.
+## Notes-zhCN: 清理小地图按钮，并通过菜单统一管理。
+## Notes-zhTW: 清理小地圖上的按鈕，並透過選單統一管理。
+## Notes-koKR: 미니맵 버튼을 정리하고 메뉴를 통해 접근할 수 있도록 합니다.
+## SavedVariables: MBB_FirstRun, MBB_DB, MBB_GlobalOptions
+## SavedVariablesPerCharacter: MBB_Exclude, MBB_Options
+## IconTexture: Interface\AddOns\MBB\Textures\MiniLogo
+
+localization-enGB.lua
+localization-frFR.lua
+localization-deDE.lua
+localization-zhCN.lua
+localization-zhTW.lua
+localization-koKR.lua
+localization-ruRU.lua
+localization-itIT.lua
+MBB.xml

@@ -1,0 +1,229 @@
+Version 2.0.0
+-------------
+- Final release of MBB Reborn 2.0 after cross-client Alpha and Beta testing.
+- Successfully tested on Retail, WoW Forever Beta, Classic Era, TBC Anniversary and Mists of Pandaria Classic.
+- Added explicit WoW Forever interface support (16001).
+- Added the Button Manager with enable/exclude controls, rescan and persistent custom ordering.
+- Added drag-and-drop ordering plus Up/Down controls and Reset Order.
+- Added account-wide profiles with create, activate, rename, duplicate and delete tools.
+- Added quick profile switching directly from the main MBB settings.
+- Profiles store layout, scale, detached-button position, positioning options and custom button order.
+- Character-specific excluded buttons remain outside profiles.
+- Added lockable detached-button positioning and optional snapping to WoW window edges.
+- Added a clear multi-monitor limitation note: WoW addons cannot detect physical monitor boundaries.
+- Made the MBB settings window movable and persist its position account-wide.
+- Improved Button Manager presentation, status indication and frame layering.
+- Preserved stable v1.x settings through automatic migration into the Default profile.
+- Stable version communication is active again for 2.0.0, allowing older stable MBB clients to detect the new release.
+- Fixed older-client XML compatibility on TBC Anniversary.
+- Updated README and localization coverage for the 2.0 feature set.
+
+Version 2.0.0-beta1
+-------------------
+- First beta build of MBB Reborn 2.0 after cross-client stabilization.
+- Successfully tested on Retail, Classic Era, TBC Anniversary and Mists of Pandaria Classic.
+- Includes the new Button Manager with enable/exclude controls, rescan and persistent custom ordering.
+- Includes drag-and-drop ordering plus Up/Down controls and Reset Order.
+- Includes account-wide profiles with create, activate, rename, duplicate and delete tools.
+- Added quick profile switching directly from the main MBB settings.
+- Profiles store layout, scale, detached-button position, positioning options and custom button order.
+- Character-specific excluded buttons remain outside profiles.
+- Added lockable detached-button positioning and optional snapping to WoW window edges.
+- Added a clear multi-monitor limitation note: WoW addons cannot detect physical monitor boundaries.
+- Made the MBB settings window movable and persist its position account-wide.
+- Improved Button Manager presentation, status indication and frame layering.
+- Preserved stable v1.x settings through automatic migration into the Default profile.
+- Prevented Alpha/Beta/RC builds from advertising themselves as updates to stable MBB users.
+- Fixed older-client XML compatibility on TBC Anniversary.
+- Updated README and localization coverage for the 2.0 feature set.
+- No additional feature expansion is planned for 2.0.0 before release; Beta focuses on final testing and bug fixes.
+
+Version 2.0.0-alpha18
+----------------------
+- Fixed TBC Anniversary / older-client XML compatibility in the main settings window.
+- Moved the quick-profile label into a proper XML layer instead of declaring a FontString directly inside <Frames>.
+- Fixes "Unknown frame type: FontString" during addon loading on TBC Anniversary.
+- No behavior changes to profiles or the quick profile selector.
+
+Version 2.0.0-alpha17
+----------------------
+- Stabilization pass before cross-client testing.
+- Prevented Alpha/Beta/RC builds from advertising themselves as updates to users on stable MBB releases.
+- Pre-release builds now only reply with their version to other pre-release clients.
+- Updated README documentation for the Button Manager, profiles, multi-monitor snapping limitation, slash commands, and version detection.
+- Fixed the missing /mbb patch example in the README.
+- Verified that all eight localization files contain the same localization keys.
+- No new gameplay features in this build; this build is intended for Retail/Classic Era/TBC Classic/MoP Classic compatibility testing.
+
+Version 2.0.0-alpha16
+----------------------
+- Fixed the quick profile selector in the main settings window.
+- Profile entries now populate correctly when opening the selector.
+
+Version 2.0.0-alpha15
+---------------------
+- Added a quick active-profile selector directly to the main MBB settings window.
+- Profiles can now be switched without opening the full Profile Manager.
+- The selector immediately reflects profile creation, rename, deletion, duplication, and activation.
+- Profile switching is automatically disabled during combat.
+- Expanded the settings window slightly to keep the new selector and management buttons cleanly spaced.
+- The full Profile Manager remains available for creating, renaming, duplicating, and deleting profiles.
+
+Version 2.0.0-alpha14
+---------------------
+- Removed the trailing ellipsis from the Profiles button in the main settings window.
+- Added Rename for custom profiles; the protected Default profile keeps its fixed identity.
+- Added Duplicate to create a full copy of any profile, including layout, scale, position, and button order.
+- Expanded the Profile Manager into two action rows for clearer controls and better localization spacing.
+- The Profiles tooltip now shows the currently active profile.
+- Added localized profile rename/duplicate controls, prompts, and status messages to all supported languages.
+
+Version 2.0.0-alpha13
+---------------------
+- Added the first account-wide Profile Manager for MBB Reborn 2.0.
+- Profiles store general layout settings, button scale, detached-button position, positioning options, and custom button order.
+- New profiles start as a copy of the currently active profile for quick setup.
+- Added profile creation, activation, deletion, and a protected Default profile.
+- Added /mbb profiles (and /mbb profile) to open the Profile Manager.
+- Character-specific excluded buttons intentionally remain outside profiles.
+- Existing v1.x / early-2.0 account-wide settings are migrated into the Default profile automatically.
+- Renamed edge snapping to "Snap to WoW window edges" and added an explicit multi-monitor limitation note.
+- Added/updated profile and snapping translations in all supported localization files.
+- Removed a duplicate RegisterForClicks call from the minimap-button preparation code.
+
+Version 2.0.0-alpha12
+---------------------
+- Reworked detached-button edge snapping to use the actual WoW viewport (UIParent).
+- Improved snapping when WoW runs on a secondary monitor or monitors use different resolutions/UI scales.
+- Removed dependence on desktop/monitor cursor coordinates for edge detection.
+- Snapped anchors continue to persist across reloads and resolution changes.
+
+Version 2.0.0-alpha11
+---------------------
+- Fixed the Button Manager appearing behind the movable MBB settings window.
+- The Button Manager now uses a higher frame strata and is raised when opened.
+
+Version 2.0.0-alpha8
+--------------------
+- Made the MBB settings window movable.
+- The settings window position is now saved account-wide and restored when reopened.
+- Added screen clamping so the settings window cannot be dragged completely off-screen.
+- /mbb reset all now also restores the settings window to the center.
+
+Version 2.0.0-alpha6
+--------------------
+- Fixed screen-edge snapping for the detached MBB button across different UI scales and resolutions.
+- Increased the snap area and now snaps to the closest edge/corner when multiple edges are nearby.
+- Snapped edge anchors are stored directly so they remain stable after reloads and resolution changes.
+
+Version 2.0.0-alpha5
+--------------------
+- Added an optional lock for the detached MBB button position.
+- Added optional snapping to nearby screen edges after moving the detached MBB button.
+- New positioning options are available directly in the MBB settings.
+- Position lock and edge snapping are account-wide like the other general MBB settings.
+- Position controls automatically disable while MBB is attached to the minimap or while in combat.
+- Added localization for the new positioning options to all supported languages.
+
+Version 2.0.0-alpha4
+--------------------
+- Improved the Button Manager list with button-style name panels.
+- Added subtle status colors: green for buttons collected by MBB, blue for buttons left on the minimap, and red for known but unloaded buttons.
+- Long internal frame names are shortened in the list while the full name remains available in the tooltip.
+- Retains drag-and-drop sorting across the full row.
+- Includes the wider Reset Order button layout fix from the previous test build.
+
+Version 2.0.0-alpha2
+--------------------
+- Added persistent custom ordering for known minimap buttons.
+- Added drag-and-drop reordering in the Button Manager.
+- Added Up/Down controls as an alternative to drag-and-drop.
+- Button order is stored account-wide and is immediately reflected in the expanded MBB menu.
+- Excluded buttons keep their saved position and return to it when collected again.
+- Added a Reset Order button to restore alphabetical ordering.
+- /mbb reset all now also resets the saved button order.
+- Added localization for all new ordering controls and hints.
+
+Version 2.0.0-alpha1
+--------------------
+- Added the first version of the new Button Manager.
+- Added a scrollable list of known minimap buttons.
+- Buttons can be moved between MBB and the minimap using checkboxes.
+- Added a Rescan button directly to the Button Manager.
+- Added /mbb manager.
+- Added combat-safe disabling of Button Manager actions.
+- Added localization for the Button Manager to all supported languages.
+- Development version based on the stable v1.0.8 codebase.
+
+
+# MinimapButtonBag Reborn v1.0.6
+
+## 🇬🇧 English
+
+### ✨ New
+- Added configurable **button scaling from 75% to 150%**.
+- General MBB settings are now stored **account-wide**.
+- The exclude list remains **character-specific**.
+- Added an **in-game version check** using the WoW addon communication channel.
+- Added localized update notifications when a newer MBB version is detected.
+
+### 🔧 Fixed
+- Fixed **middle mouse button support** for collected minimap buttons.
+- Addons can now correctly receive middle-click actions.
+- Fixed button visibility after an addon hides or disables its own minimap button.
+- Improved Show/Hide handling for collected minimap buttons.
+- Fixed `/mbb reset all` so account-wide settings are reset correctly.
+- Fixed patch/interface detection for the unified multi-version TOC.
+
+### 🎨 UI
+- Improved the wording of the secondary row direction option.
+- Button scaling now applies cleanly to the MBB button and collected addon buttons.
+
+### 🌍 Localization
+- Updated all supported localization files.
+- Added translations for button scaling.
+- Added translations for update notifications.
+- Updated the wording of the secondary row direction setting.
+- All localization files are synchronized again.
+
+### 🎮 Supported WoW Versions
+- World of Warcraft Retail
+- WoW Classic Era
+- The Burning Crusade Classic
+- Mists of Pandaria Classic
+
+---
+
+## 🇩🇪 Deutsch
+
+### ✨ Neu
+- Einstellbare **Button-Skalierung von 75 % bis 150 %** hinzugefügt.
+- Allgemeine MBB-Einstellungen werden jetzt **accountweit** gespeichert.
+- Die Ausschlussliste bleibt weiterhin **charakterspezifisch**.
+- Eine **Ingame-Versionsprüfung** über den WoW-Addon-Kommunikationskanal wurde hinzugefügt.
+- Lokalisierte Update-Hinweise erscheinen, wenn eine neuere MBB-Version erkannt wird.
+
+### 🔧 Behoben
+- **Mittelklick-Unterstützung** für eingesammelte Minimap-Buttons behoben.
+- Addons können eigene Mittelklick-Funktionen jetzt korrekt ausführen.
+- Sichtbarkeitsprobleme behoben, wenn ein Addon seinen eigenen Minimap-Button ausblendet oder deaktiviert.
+- Show/Hide-Verhalten eingesammelter Minimap-Buttons verbessert.
+- `/mbb reset all` korrigiert, damit accountweite Einstellungen zuverlässig zurückgesetzt werden.
+- Patch-/Interface-Erkennung für die gemeinsame Multi-Version-TOC korrigiert.
+
+### 🎨 Oberfläche
+- Bezeichnung der alternativen Reihenrichtung verständlicher formuliert.
+- Die Button-Skalierung wird sauber auf den MBB-Button und eingesammelte Addon-Buttons angewendet.
+
+### 🌍 Übersetzungen
+- Alle unterstützten Sprachdateien aktualisiert.
+- Übersetzungen für die Button-Skalierung hinzugefügt.
+- Übersetzungen für Update-Hinweise hinzugefügt.
+- Bezeichnung der alternativen Reihenrichtung überarbeitet.
+- Alle Sprachdateien sind wieder vollständig synchronisiert.
+
+### 🎮 Unterstützte WoW-Versionen
+- World of Warcraft Retail
+- WoW Classic Era
+- The Burning Crusade Classic
+- Mists of Pandaria Classic

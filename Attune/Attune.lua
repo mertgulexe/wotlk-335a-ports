@@ -850,6 +850,55 @@ local LineBackdrop = {
 	insets = { left = 1, right = 1, top = 1, bottom = 1}
 }
 -------------------------------------------------------------------------
+-- Minimap icon, created at login so it is there before the loading screen
+-- ends (it used to wait for the server to answer QueryQuestsCompleted).
+-- Clicks wait for that answer, as the window needs the quest data.
+-------------------------------------------------------------------------
+local function Attune_CreateMinimapIcon()
+	if Attune_Broker ~= nil then return end
+	if Attune_DB == nil then Attune_DB = {} end
+	if Attune_DB.minimapbuttonpos == nil then Attune_DB.minimapbuttonpos = {} end
+	if Attune_DB.minimapbuttonpos.hide == nil then Attune_DB.minimapbuttonpos.hide = false end
+
+	Attune_Broker = attunelocal_ldb:NewDataObject("Attune_Broker", {
+		type = "data source",
+		label = "Attune",
+		text = "Click me!",
+		icon = "Interface\\Icons\\inv_scroll_03",
+		OnClick = function(self, button)
+			if not attuneInitialized then
+				print("|cffff00ff[Attune]|r Still loading quest data from the server, try again in a moment.")
+				return
+			end
+			if button=="LeftButton" then
+				Attune_SlashCommandHandler("")
+			elseif button=="RightButton" then
+				InterfaceOptionsFrame_Show()
+				InterfaceOptionsFrame_OpenToCategory("Attune")
+			end
+		end,
+		OnTooltipShow = function(tooltip)
+			tooltip:AddLine("|cFFffffffAttune v"..attunelocal_version.."|r")
+
+			if not attuneInitialized then
+				tooltip:AddLine("Loading quest data from the server...", 1, 0.5, 0)
+				return
+			end
+
+			if 	attunelocal_brokerlabel ~= nil then
+				tooltip:AddLine(" ")
+				tooltip:AddLine("|cffffd100"..attunelocal_brokerlabel..":|r |cFFffffff"..attunelocal_brokervalue.."|r")
+			end
+
+			tooltip:AddLine(" ")
+			tooltip:AddLine("|cffffd100"..Lang["LeftClick"].."|r"..Lang["OpenAttune"].."\n|cffffd100"..Lang["RightClick"].."|r"..Lang["OpenSettings"], 0.2, 1, 0.2)
+		end,
+	})
+
+	attunelocal_minimapicon:Register("Attune_Broker", Attune_Broker, Attune_DB.minimapbuttonpos)
+end
+
+-------------------------------------------------------------------------
 -- EVENT: Addon is enabled
 -------------------------------------------------------------------------
 function Attune:OnEnable()
@@ -864,6 +913,8 @@ function Attune:OnEnable()
 	Attune:RegisterComm(attunelocal_prefix)
 	Attune:RegisterComm(attunelocal_versionprefix)
 	Attune:RegisterComm(attunelocal_syncprefix)
+
+	Attune_CreateMinimapIcon()
 
 	self:RegisterEvent("QUEST_QUERY_COMPLETE")
 
@@ -1030,31 +1081,8 @@ function Attune:OnEnableEnd()
 
 
 
-	Attune_Broker = attunelocal_ldb:NewDataObject("Attune_Broker", {
-		type = "data source",
-		label = "Attune",
-		text = "Click me!",
-		icon = "Interface\\Icons\\inv_scroll_03",
-		OnClick = function(self, button)
-			if button=="LeftButton" then
-				Attune_SlashCommandHandler("")
-			elseif button=="RightButton" then
-				InterfaceOptionsFrame_Show()
-				InterfaceOptionsFrame_OpenToCategory("Attune")
-			end
-		end,
-		OnTooltipShow = function(tooltip)
-			tooltip:AddLine("|cFFffffffAttune v"..attunelocal_version.."|r")
-
-			if 	attunelocal_brokerlabel ~= nil then
-				tooltip:AddLine(" ")
-				tooltip:AddLine("|cffffd100"..attunelocal_brokerlabel..":|r |cFFffffff"..attunelocal_brokervalue.."|r")
-			end
-
-			tooltip:AddLine(" ")
-			tooltip:AddLine("|cffffd100"..Lang["LeftClick"].."|r"..Lang["OpenAttune"].."\n|cffffd100"..Lang["RightClick"].."|r"..Lang["OpenSettings"], 0.2, 1, 0.2)
-		end,
-	})
+	-- the minimap icon is created in OnEnable now (Attune_CreateMinimapIcon)
+	Attune_CreateMinimapIcon()
 
 
 
@@ -1087,7 +1115,6 @@ function Attune:OnEnableEnd()
 	end
 
 
-	attunelocal_minimapicon:Register("Attune_Broker", Attune_Broker, Attune_DB.minimapbuttonpos)
 	if Attune_DB.minimapbuttonpos.hide then attunelocal_minimapicon:Hide("Attune_Broker"); attunelocal_minimapicon:Hide("Attune_Broker") else attunelocal_minimapicon:Show("Attune_Broker");attunelocal_minimapicon:Show("Attune_Broker") end
 
 
