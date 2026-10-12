@@ -1,0 +1,326 @@
+<Ui>
+
+    <!--
+        TinyPadBookmarkButtonTemplate : template for the scrollabe list of bookmarks
+        TinyPadEditBoxTemplate : editbox with background but no clear button or instructions
+        TinyPadEditBoxWithInstructionsTemplate : editbox with clear button and instructions
+        TinyPadPanelButtonTemplate : wide panel-like buttons with no icon
+        TinyPadPanelButtonWithIconTemplate : wide buttons with an icon that pushes with text
+     -->
+
+    <Button name="TinyPadBookmarkButtonTemplate" virtual="true">
+        <Size x="96" y="18"/>
+        <Layers>
+            <Layer level="BACKGROUND">
+                <Texture parentKey="top">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="1" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="TOPRIGHT" x="0" y="-1"/>
+                    </Anchors>
+                    <Color r="0.3" g="0.3" b="0.3"/>
+                </Texture>
+                <Texture parentKey="right">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" relativePoint="TOPRIGHT" x="-1" y="-1"/>
+                        <Anchor point="BOTTOMRIGHT" x="0" y="1"/>
+                    </Anchors>
+                    <Color r="0.3" g="0.3" b="0.3"/>
+                </Texture>
+                <Texture parentKey="left">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="0" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMLEFT" x="1" y="0"/>
+                    </Anchors>
+                    <Color r="0.1" g="0.1" b="0.1"/>
+                </Texture>
+                <Texture parentKey="bottom">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" x="1" y="1"/>
+                        <Anchor point="BOTTOMRIGHT"/>
+                    </Anchors>
+                    <Color r="0.1" g="0.1" b="0.1"/>
+                </Texture>
+                <Texture parentKey="back">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="1" y="-1"/>
+                        <Anchor point="BOTTOMRIGHT" x="-1" y="1"/>
+                    </Anchors>
+                    <Color r="0.2" g="0.2" b="0.2"/>
+                </Texture>
+            </Layer>
+            <Layer level="ARTWORK">
+                <FontString parentKey="text" inherits="SystemFont_Tiny" justifyH="LEFT" text="Bookmark Title">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="5" y="-2"/>
+                        <Anchor point="BOTTOMRIGHT" x="-3" y="2"/>
+                    </Anchors>
+                </FontString>
+            </Layer>
+            <Layer level="HIGHLIGHT">
+                <Texture alphaMode="ADD">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="2" y="-2"/>
+                        <Anchor point="BOTTOMRIGHT" x="-2" y="2"/>
+                    </Anchors>
+                    <Color r="0.15" g="0.15" b="0.15"/>
+                </Texture>
+            </Layer>
+        </Layers>
+    </Button>
+
+    <!-- TinyPadEditBoxTemplate : editbox with background but no clear button or instructions -->
+    <EditBox name="TinyPadEditBoxTemplate" autofocus="false" virtual="true">
+        <Size x="60" y="24"/>
+		<TextInsets>
+			<AbsInset left="7" right="7" top="1" bottom="1"/>
+		</TextInsets>
+        <Layers>
+            <Layer level="BACKGROUND">
+                <Texture parentKey="left" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMLEFT" x="8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.75" right="0.78125" top="0.5" bottom="0.59375"/>
+                </Texture>
+                <Texture parentKey="mid" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="8" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.78125" right="0.8125" top="0.5" bottom="0.59375"/>
+                </Texture>
+                <Texture parentKey="right" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPRIGHT"/>
+                        <Anchor point="BOTTOMLEFT" relativePoint="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.8125" right="0.84375" top="0.5" bottom="0.59375"/>
+                </Texture>
+            </Layer>
+        </Layers>
+		<FontString inherits="NumberFont_Small"/>
+        <Scripts>
+            <OnEscapePressed>
+                self:ClearFocus()
+            </OnEscapePressed>
+        </Scripts>      
+    </EditBox>
+
+    <!-- TinyPadEditBoxWithInstructionsTemplate : editbox with clear button and instructions -->
+    <EditBox name="TinyPadEditBoxWithInstructionsTemplate" inherits="TinyPadEditBoxTemplate" virtual="true">
+		<TextInsets>
+			<AbsInset left="7" right="17" top="1" bottom="0"/>
+		</TextInsets>
+        <Layers>
+            <Layer level="ARTWORK">
+                <FontString parentKey="instructions" inherits="NumberFont_Small" text="Instructions">
+                    <Anchors>
+                        <Anchor point="LEFT" x="10" y="0"/>
+                    </Anchors>
+                    <Color r="0.35" g="0.35" b="0.35"/>
+                </FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <Button parentKey="clearButton">
+                <Size x="16" y="16"/>
+                <Anchors>
+                    <Anchor point="RIGHT" x="-3" y="-1"/>
+                </Anchors>
+                <NormalTexture file="Interface\AddOns\TinyPad\media\buttons">
+                    <TexCoords left="0.875" right="0.90625" top="0.5" bottom="0.53125"/>
+                </NormalTexture>
+                <PushedTexture file="Interface\AddOns\TinyPad\media\buttons">
+                    <TexCoords left="0.90625" right="0.9375" top="0.5" bottom="0.53125"/>
+                </PushedTexture>
+                <HighlightTexture file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD">
+                    <TexCoords left="0.875" right="0.90625" top="0.5" bottom="0.53125"/>
+                </HighlightTexture>
+                <Scripts>
+                    <!-- these nudge the highlight texture so it follows the pushed texture -->
+                    <OnMouseDown>
+                        _TinyPad.buttons.isButtonBeingClicked = true
+                        self:GetHighlightTexture():SetTexCoord(0.90625,0.9375,0.5,0.53125)
+                    </OnMouseDown>
+                    <OnMouseUp>
+                        _TinyPad.buttons.isButtonBeingClicked = false
+                        self:GetHighlightTexture():SetTexCoord(0.875,0.90625,0.5,0.53125)
+                    </OnMouseUp>
+                    <OnShow>
+                        self:GetScript("OnMouseUp")(self)
+                    </OnShow>
+                    <OnClick>
+                        self:GetParent():SetText("")
+                        self:GetParent():SetFocus(true)
+                    </OnClick>
+                </Scripts>
+            </Button>
+        </Frames>
+        <Scripts>
+            <OnTextChanged>
+                if self:GetText():trim():len()>0 then
+                    self.instructions:Hide()
+                    self.clearButton:Show()
+                else
+                    self.instructions:Show()
+                    self.clearButton:Hide()
+                end
+            </OnTextChanged>
+        </Scripts>
+    </EditBox>
+
+    <!-- TinyPadPanelButtonTemplate : wide panel-like buttons with no icon -->
+    <Button name="TinyPadPanelButtonTemplate" virtual="true">
+        <Size x="60" y="24"/>
+        <Layers>
+            <!-- "NormalTexture" texture; pushed via SetTexCoords in OnMouseDown -->
+            <Layer level="BACKGROUND">
+                <Texture parentKey="left" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMLEFT" x="8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.75" right="0.78125" top="0.375" bottom="0.46875"/>
+                </Texture>
+                <Texture parentKey="mid" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="8" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.78125" right="0.8125" top="0.375" bottom="0.46875"/>
+                </Texture>
+                <Texture parentKey="right" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Anchors>
+                        <Anchor point="TOPRIGHT"/>
+                        <Anchor point="BOTTOMLEFT" relativePoint="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.8125" right="0.84375" top="0.375" bottom="0.46875"/>
+                </Texture>
+            </Layer>
+            <Layer level="ARTWORK">
+                <FontString parentKey="text" inherits="SystemFont_Tiny">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="6" y="-4"/>
+                        <Anchor point="BOTTOMRIGHT" x="-22" y="3"/>
+                    </Anchors>
+                </FontString>
+            </Layer>
+            <!-- "HighlightTexture" is never referenced so can remain parentkeyless -->
+            <Layer level="HIGHLIGHT">
+                <Texture file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD" alpha="0.75">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMLEFT" x="8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.125" right="0.15625" top="0.25" bottom="0.34375"/>
+                </Texture>
+                <Texture file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD" alpha="0.75">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="8" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.15625" right="0.1875" top="0.25" bottom="0.34375"/>
+                </Texture>
+                <Texture file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD" alpha="0.75">
+                    <Anchors>
+                        <Anchor point="TOPRIGHT"/>
+                        <Anchor point="BOTTOMLEFT" relativePoint="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.1875" right="0.21875" top="0.25" bottom="0.34375"/>
+                </Texture>
+            </Layer>
+        </Layers>
+        <Scripts>
+            <OnMouseUp>
+                self.left:SetTexCoord(0.75,0.78125,0.375,0.46875)
+                self.mid:SetTexCoord(0.78125,0.8125,0.375,0.46875)
+                self.right:SetTexCoord(0.8125,0.84375,0.375,0.46875)
+                self.text:SetTextColor(1,1,1)
+                if self.icon then
+                    self.icon:SetPoint("RIGHT",-5,-0.5)
+                    self.icon:SetVertexColor(1,1,1)
+                    self.text:SetPoint("TOPLEFT",6,-3)
+                    self.text:SetPoint("BOTTOMRIGHT",-22,4)
+                else
+                    self.text:SetPoint("TOPLEFT",6,-3)
+                    self.text:SetPoint("BOTTOMRIGHT",-6,3)
+                end
+            </OnMouseUp>
+            <OnMouseDown>
+                self.left:SetTexCoord(0.875,0.90625,0.375,0.46875)
+                self.mid:SetTexCoord(0.90625,0.9375,0.375,0.46875)
+                self.right:SetTexCoord(0.9375,0.96875,0.375,0.46875)
+                self.text:SetTextColor(0.75,0.75,0.75)
+                if self.icon then
+                    self.icon:SetPoint("RIGHT",-6,-2.5)
+                    self.icon:SetVertexColor(1,1,1)
+                    self.text:SetPoint("TOPLEFT",5,-5)
+                    self.text:SetPoint("BOTTOMRIGHT",-23,2)
+                else
+                    self.text:SetPoint("TOPLEFT",5,-5)
+                    self.text:SetPoint("BOTTOMRIGHT",-7,1)
+                end
+            </OnMouseDown>
+            <OnShow>
+                self:GetScript("OnMouseUp")(self)
+            </OnShow>
+        </Scripts>
+    </Button>
+
+    <!-- TinyPadPanelButtonWithIconTemplate : wide buttons with an icon that pushes with text -->
+    <Button name="TinyPadPanelButtonWithIconTemplate" inherits="TinyPadPanelButtonTemplate" virtual="true">
+        <Size x="60" y="24"/>
+        <Layers>
+            <Layer level="ARTWORK">
+                <Texture parentKey="icon" file="Interface\AddOns\TinyPad\media\buttons">
+                    <Size x="16" y="16"/>
+                    <Anchors>
+                        <Anchor point="RIGHT" x="-3" y="0"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+        </Layers>
+    </Button>
+
+    <!-- tintable white border to flash around elements (eg. red flash when entering searchBox with no hits) -->
+    <Frame name="TinyPadFlashTemplate" setAllPoints="true" alpha="0" virtual="true">
+        <Animations>
+            <AnimationGroup parentKey="animation">
+                <Alpha fromAlpha="0" toAlpha="0.5" duration="0.125" order="1"/>
+                <Alpha fromAlpha="0.5" toAlpha="0" duration="0.125" order="2"/>
+                <Scripts>
+                    <OnFinished>
+                        self:GetParent():SetAlpha(0)
+                    </OnFinished>
+                </Scripts>
+            </AnimationGroup>
+        </Animations>
+        <Layers>
+            <Layer level="OVERLAY">
+                <Texture parentKey="left" file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMLEFT" x="8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.125" right="0.15625" top="0.25" bottom="0.34375"/>
+                </Texture>
+                <Texture parentKey="mid" file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD">
+                    <Anchors>
+                        <Anchor point="TOPLEFT" x="8" y="0"/>
+                        <Anchor point="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.15625" right="0.1875" top="0.25" bottom="0.34375"/>
+                </Texture>
+                <Texture parentKey="right" file="Interface\AddOns\TinyPad\media\buttons" alphaMode="ADD">
+                    <Anchors>
+                        <Anchor point="TOPRIGHT"/>
+                        <Anchor point="BOTTOMLEFT" relativePoint="BOTTOMRIGHT" x="-8" y="0"/>
+                    </Anchors>
+                    <TexCoords left="0.1875" right="0.21875" top="0.25" bottom="0.34375"/>
+                </Texture>
+            </Layer>
+        </Layers>
+    </Frame>
+
+</Ui>

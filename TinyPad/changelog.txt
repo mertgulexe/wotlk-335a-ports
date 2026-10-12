@@ -1,0 +1,119 @@
+v3.0.19, 08/16/2022
+- toc update for 9.2.7 patch
+
+v3.0.18, 08/03/2022
+- Added option "Start on First Page" to open TinyPad to the first page after a login/reload, instead of the last.
+
+v3.0.17, 05/31/2022
+- toc update for 9.2.5 patch
+
+v3.0.16, 05/21/2022
+- Added curse project ID to toc
+
+v3.0.15, 05/19/2022
+- Added option "Share Position" to make window size and position shared across all characters
+- Updated toc for Wago
+
+v3.0.14, 05/12/2022
+- Fix to make wowup recognize the wowinterface provider. (May require a rescan of folders in wowup)
+
+v3.0.13, 02/22/2022
+- toc update for 9.2 patch
+
+v3.0.12, 11/27/2021
+- Added broker plugin to summon/dismiss window
+- toc update for Classic/BCC clients
+
+v3.0.11, 11/2/2021
+- toc update for 9.1.5 patch
+
+v3.0.10, 06/29/2021
+- toc update for 9.1.0 patch
+
+v3.0.9, 05/18/2021
+- Update for The Burning Crusade Classic
+
+v3.0.7, 03/13/21
+- toc update for 9.0.5 patch
+
+v3.0.6, 12/06/20
+- Added option 'Open On Login' to make TinyPad open when you login or /reload.
+- Added 'Invisible' suboption under 'Transparency' to increase the transparency effect.
+- Added 'Hide More' suboption under 'Hide Tooltips' to also hide bookmark tooltips.
+
+v3.0.5, 10/13/20
+- Shadowlands pre-patch release.
+
+v3.0.4, 9/10/20
+- Added a separate Search button to the main toolbar to open a dedicated search bar beneath the toolbar.
+- The settings button now opens a scrollable side panel rather than a row of toolbar buttons shared with search.
+- Font options are now within the settings panel rather than a dedicated toolbar panel.
+- Added support for adding more fonts choices in panels\settings.lua.
+- Added Morpheus and Skurri font choices.
+- Added option 'No Fadeout' to stop the behavior of the TinyPad background fading out when the mouse leaves the window.
+- Added option 'Hide Tooltips' to hide tooltips.
+- Hitting Ctrl+F will open the Search panel when the main editbox has focus.
+- Hitting Ctrl+N will start a new page when the main editbox has focus.
+- Added option 'Allow Ctrl Keys' to allow Ctrl+F (Find), Ctrl+N (New), Ctrl+Z (Undo) and Ctrl+Y (Redo) to work while TinyPad's editbox doesn't have focus but the addon is on the screen.
+- Fix for fadein/fadeout effect sometimes not triggering when the mouse moves very fast.
+- The Tab key will now insert 3 spaces where the cursor is.
+
+v3.0.3, 8/7/20
+- Added support for Shadowlands beta client
+
+v3.0.2, 7/26/20
+- Fix for page not saving if it's up on screen during a logout/reload.
+v3.0.1, 7/5/20, Complete rewrite. Changes include:
+- When the mouse is off the window while it doesn't have focus, the toolbar, bordering frame, etc. will fade away and leave only the text area on screen.
+- When there's not enough text on a page to scroll, the scrollbar will now hide and allow text to wrap across width ordinarily taken up by the scrollbar.
+- The toolbar now adapts to the size of the window. For instance: as you narrow the window's width, the page number will collapse; narrowing it even further will make the toolbar buttons smaller; and narrowing it even more will make the undo/redo buttons collapse.
+- The pop-out bar for search and settings now appears inside the window instead of outside the window.
+- The bookmark list is now a scrollable panel that appears inside the window rather than a context menu outside the window.
+- Confirmation dialogs now appear inside the window as well, rather than static popup dialogs in the center of the screen.
+- Undo/Redo buttons (or Ctrl+Z/Ctrl+Y) can revert and restore incremental changes to a page.
+- The font button will now summon a bar to choose a Serif (Fritz Quad Bold), San Serif (Arial) or Monospace (Inconsolata) font in Small, Medium or Large sizes. (Those who previously edited the Lua to choose your own fonts, that's now in panels\fontbar.lua.)
+- Bookmarked pages now have their title displayed on the main window.
+- The transparency option will now only make the text area semi-transparent, since the remainder of the window fades completely when it loses focus.
+- Mousewheel over the scrollbar will scroll the content.
+- While locked, the window can now be moved by holding Shift as you drag the window with the mouse.
+- When the Find button or Enter key is hit in the search box (with text to search), the border of the editbox will flash green if it found a hit and red if not.
+- An optional minimap button for summoning and dismissing TinyPad can be turned on from the Minimap button in the settings toolbar.
+- Button textures are all updated for a higher resolution and better scaling.
+- The relatively new retail client behavior of clicking elsewhere to lose focus on an editbox is now supported in search and bookmark title editboxes.
+- The same version works on both Retail and Classic clients; though Classic clients will need to load out of date addons.
+v2.2.0, 2/29/20, added a Transparency option, fix for pullout panel buttons not working, removed all involvement with UISpecialFrames, toc update for 8.3 patch
+v2.1.8, 7/17/18, toc update for 8.0 patch
+v2.1.7, 10/29/17, size option now toggles a traditional scale, bookmarks excluded from size change, pages save as text changes and undo to initial state when shown
+v2.1.6, 10/1/17, added Size button to the options panel to toggle the size of TinyPad (for now it's a fix for the cursor not being at the insertion point in 7.3 patch)
+v2.1.5, 8/29/17, fix for PlaySound change in 7.3, toc update for 7.3 patch
+v2.1.4, 3/28/17, toc update for 7.2 patch
+v2.1.3, 10/24/16, toc update for 7.1 patch
+v2.1.2, 9/11/16, fix for lua error when attempting to link a profession to chat
+v2.1.1, 7/17/16, fix for clicking a tradeskill link while tradeskill window is open
+v2.1.0, 5/28/16, toc update for 7.0 patch, support/fixes for Legion, linking a stack will no longer summon the stack split frame
+v2.0.5, 6/22/15, toc update for 6.2 patch
+v2.0.4, 2/24/15, toc update for 6.1 patch
+v2.0.3, 11/8/14, quest links causing serious taint issues, temporarily removing ability to link quests
+v2.0.2 10/14/14, 6.0 patch, AddOns binding category
+v2.0.1, 9/12/14, completely rewritten, improved scrollbar vs cursor handling, improved link handling, shift+enter to search backwards, WoD compatable
+v1.95, 9/11/13, toc update for 5.4 patch
+v1.94, 8/26/13, fix for battlepet links (use reflink instead of link), and secure hook for quest links
+v1.93, 5/21/13, toc update for 5.3 patch
+v1.92, 11/13/12, removed UpdateScrollChildRect, max scroll enforced when focused and cursor position -5 to end
+v1.91, 8/27/12, 5.0 (Mists of Pandaria) toc update
+v1.90, 2/4/12, cleaned up XML, shift+clicking page turns move a page, changed search method from string:lower comparisons to a [Cc][Aa][Ss][Ee]insensitive search, added bookmark system
+v1.8, 1/14/12, fixes for quest/tradeskill linking, added achievement linking
+v1.71, 9/28/10, removed 'arg1' from moving, added TinyPad.Insert and TinyPad.DeletePagesContaining
+v1.7, 9/1/10, changed 'this' references to 'self' in xml, updated toc
+v1.62, 7/8/10, actual fix for linking to chat, SetItemRef extra params
+v1.61, 6/24/10, fix for linking to chat
+v1.6, 12/3/08, added support for inserting/displaying links
+v1.53, 8/8/08, changed toc, this to self, passed arg1s, changed getn's to #'s
+v1.52, 11/1/06, UISpecialFrames added back
+v1.51, 10/23/06, UISpecialFrames removed
+v1.5, 10/4/06, updated for Lua 5.1
+v1.4, 8/22/06, bug fix: run script saves page to run, changed: moved buttons to search panel, reduced minimum width
+v1.3, 8/5/06, added undo, widened page number
+v1.2, 6/23/06, added search, lock, fonts, /pad <page>, /pade run <page>
+v1.1, 12/18/05, remove autofocus, added confirmation on delete
+v1.0, 12/16/05, initial release

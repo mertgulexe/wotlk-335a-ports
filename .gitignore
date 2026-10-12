@@ -1,0 +1,12 @@
+# Built-in game folders (part of the client, not addons)
+Blizzard_*/
+
+# Editor / OS clutter and leftovers
+*.bak
+*.orig
+*.tmp
+*.log
+Thumbs.db
+desktop.ini
+.DS_Store
+__pycache__/

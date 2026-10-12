@@ -1,0 +1,26 @@
+## Interface: 30300
+## Title: AtlasLoot Revival
+## Notes: Maps, bosses and loot — unofficial WoW 3.3.5a (WotLK) port.
+## Author: AtlasLoot Revival contributors
+## Version: 0.2.4-wotlk335
+## SavedVariables: AtlasLootRevivalDB
+## X-Curse-Project-ID: 1666354
+## X-License: MIT
+
+Bootstrap.lua
+Core\Constants.lua
+Core\Compat.lua
+Locales\enUS.lua
+Core\Database.lua
+Data\Instances.lua
+Data\Loot.lua
+Data\TBC\Instances.lua
+Data\TBC\Loot.lua
+Data\WotLK\Instances.lua
+Data\WotLK\Loot.lua
+Data\WotLK\Overrides.lua
+UI\MainWindow.lua
+UI\SettingsPanel.lua
+UI\MinimapButton.lua
+Core\SlashCommands.lua
+Core\Events.lua

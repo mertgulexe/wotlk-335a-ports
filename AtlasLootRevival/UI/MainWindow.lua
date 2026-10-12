@@ -1,0 +1,2558 @@
+local _, ns = ...
+
+local MainWindow = ns:RegisterModule("MainWindow", {})
+local Compat = ns.Compat
+
+local WINDOW_WIDTH = 940
+local WINDOW_HEIGHT = 600
+local SIDEBAR_WIDTH = 174
+local MAP_LEFT = 198
+local MAP_WIDTH = 488
+local MAP_HEIGHT = 366
+local TILE_SIZE = 122
+local MAP_OUTER_PADDING = 8
+local MAP_LOOT_GAP = 12
+local MAP_RIGHT = MAP_LEFT + MAP_WIDTH + MAP_OUTER_PADDING
+local MAP_RIGHT_OFFSET = WINDOW_WIDTH - MAP_RIGHT
+local LOOT_PANEL_LEFT = MAP_RIGHT + MAP_LOOT_GAP
+local MIN_WINDOW_SCALE = 0.75
+local MAX_WINDOW_SCALE = 1.25
+local MAX_ENCOUNTER_BUTTONS = 16
+local MAX_MAP_PINS = 32
+local MAP_CLUSTER_DISTANCE = 30
+local MAX_CLUSTER_BUTTONS = 16
+local MAX_INSTANCE_MENU_BUTTONS = 16
+local MAX_FLOOR_MENU_BUTTONS = 20
+local MAX_LOOT_ROWS = 16
+local LOOT_ROW_HEIGHT = 24
+local LOOT_ROW_STEP = 25
+local LOOT_PANEL_WIDTH = WINDOW_WIDTH - 12 - LOOT_PANEL_LEFT
+local LOOT_HEADER_INSET = 13
+local DIFFICULTY_BUTTON_RIGHT = 11
+local DIFFICULTY_BUTTON_TOP = 39
+local DIFFICULTY_BUTTON_PADDING = 10
+local DIFFICULTY_BUTTON_GAP = 2
+local DIFFICULTY_META_GAP = 5
+-- Room "Boss  •  NPC 12345" needs beside the selector; with less (the four WotLK raid
+-- difficulties) the selector gets its own header row and the loot list moves down.
+local DIFFICULTY_META_MIN_WIDTH = 100
+local DIFFICULTY_ROW_TOP = 51
+local DIFFICULTY_ROW_SHIFT = 10
+local BOSS_META_LINE_HEIGHT = 12
+local TRASH_DROPS_KEY = "trash_drops"
+local selectedColor = { 0.82, 0.58, 0.20 }
+local DIFFICULTY_LABELS = {
+    normal = ns.L.NORMAL,
+    heroic = ns.L.HEROIC,
+    raid10 = ns.L.RAID10,
+    raid25 = ns.L.RAID25,
+    raid10h = ns.L.RAID10H,
+    raid25h = ns.L.RAID25H,
+}
+local DIFFICULTY_NAMES = {
+    normal = ns.L.NORMAL,
+    heroic = ns.L.HEROIC,
+    raid10 = ns.L.RAID10_LONG,
+    raid25 = ns.L.RAID25_LONG,
+    raid10h = ns.L.RAID10H_LONG,
+    raid25h = ns.L.RAID25H_LONG,
+}
+-- Instance menu: sort and tint level ranges by expansion (Classic keeps the default gray).
+local EXPANSION_ORDER = { tbc = 2, wotlk = 3 }
+local EXPANSION_COLORS = {
+    tbc = { 0.45, 0.80, 0.35 },
+    wotlk = { 0.45, 0.72, 1.00 },
+}
+local MAP_MARKER_STYLES = {
+    small = { marker = 15, ring = 20, font = 11 },
+    normal = { marker = 18, ring = 24, font = 12 },
+    large = { marker = 21, ring = 28, font = 14 },
+}
+
+local backdrop = {
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true,
+    tileSize = 16,
+    edgeSize = 14,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 },
+}
+
+local function CreateBackdropFrame(frameType, name, parent)
+    local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+    local frame = CreateFrame(frameType, name, parent, template)
+    if frame.SetBackdrop then
+        frame:SetBackdrop(backdrop)
+    end
+    return frame
+end
+
+local function SetBackdropColor(frame, red, green, blue, alpha)
+    if frame.SetBackdropColor then
+        frame:SetBackdropColor(red, green, blue, alpha)
+        frame:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
+    end
+end
+
+local function GetItemDisplay(itemID)
+    local name, link, quality, _, _, _, _, _, _, icon = GetItemInfo(itemID)
+    if not name then
+        Compat.RequestItemInfo(itemID)
+        -- GetItemIcon works for uncached items (it reads the client's Item.dbc).
+        icon = GetItemIcon and GetItemIcon(itemID) or nil
+    end
+    return name, link, quality, icon
+end
+
+local function FormatDropChance(chance)
+    local formatted = string.format("%.2f", chance)
+    formatted = formatted:gsub("0+$", ""):gsub("%.$", "")
+    return formatted
+end
+
+local function JoinQuestIDs(questIDs)
+    local parts = {}
+    for _, questID in ipairs(questIDs or {}) do
+        table.insert(parts, tostring(questID))
+    end
+    return table.concat(parts, ", ")
+end
+
+local function SetTruncatedText(fontString, text)
+    text = tostring(text or "")
+    fontString:SetText(text)
+
+    local availableWidth = fontString:GetWidth()
+    if not availableWidth or availableWidth <= 0
+        or fontString:GetStringWidth() <= availableWidth then
+        return
+    end
+
+    local suffix = "..."
+    local low = 0
+    local high = #text
+    while low < high do
+        local midpoint = math.ceil((low + high) / 2)
+        fontString:SetText(string.sub(text, 1, midpoint) .. suffix)
+        if fontString:GetStringWidth() <= availableWidth then
+            low = midpoint
+        else
+            high = midpoint - 1
+        end
+    end
+    fontString:SetText(string.sub(text, 1, low) .. suffix)
+end
+
+local function SetButtonHighlight(button, selected)
+    if selected then
+        Compat.SetSolidColor(button.background, selectedColor[1], selectedColor[2], selectedColor[3], 0.22)
+        button.label:SetTextColor(1, 0.82, 0.38)
+    else
+        Compat.SetSolidColor(button.background, 1, 1, 1, 0.035)
+        button.label:SetTextColor(0.82, 0.82, 0.82)
+    end
+end
+
+-- Range and value updates made by the code must not reach OnValueChanged: SetMinMaxValues
+-- clamps the old value into the new range, and the handler would adopt that as the offset.
+local function SetScrollbarRange(scrollbar, maxOffset, offset)
+    scrollbar.updatingRange = true
+    scrollbar:SetMinMaxValues(0, maxOffset)
+    scrollbar:SetValue(offset)
+    scrollbar.updatingRange = nil
+end
+
+local function ShowMapPinRing(pin, alpha)
+    if pin.ring.SetDesaturated then
+        pin.ring:SetDesaturated(pin.isCluster and true or false)
+    end
+    if pin.isCluster then
+        pin.ring:SetVertexColor(0.12, 0.82, 1)
+    else
+        pin.ring:SetVertexColor(1, 1, 1)
+    end
+    pin.ring:SetAlpha(alpha or 1)
+    pin.ring:Show()
+end
+
+function MainWindow:SetMapMarkerSize(markerSize, save)
+    local style = MAP_MARKER_STYLES[markerSize] or MAP_MARKER_STYLES.normal
+    markerSize = MAP_MARKER_STYLES[markerSize] and markerSize or "normal"
+    self.markerSize = markerSize
+
+    for _, pin in ipairs(self.mapPinRows or {}) do
+        pin.marker:SetSize(style.marker, style.marker)
+        pin.ring:SetSize(style.ring, style.ring)
+        pin.number:SetFont(STANDARD_TEXT_FONT, style.font, "OUTLINE")
+    end
+
+    if save then
+        local database = ns.modules.Database.data
+        if database then
+            database.settings.map.markerSize = markerSize
+        end
+    end
+end
+
+local function ClampWindowScale(scale)
+    scale = tonumber(scale) or 1
+    if scale < MIN_WINDOW_SCALE then
+        return MIN_WINDOW_SCALE
+    end
+    if scale > MAX_WINDOW_SCALE then
+        return MAX_WINDOW_SCALE
+    end
+    return scale
+end
+
+local function GetAvailableInstanceKeys(contentType)
+    local flavor = ns.Constants.GetClientFlavor()
+    local keys = {}
+    for key, instance in pairs(ns.Data.instances) do
+        if ns.Constants.SupportsInstanceFlavor(instance, flavor)
+            and (instance.contentType or "dungeon") == (contentType or "dungeon") then
+            table.insert(keys, key)
+        end
+    end
+    table.sort(keys, function(leftKey, rightKey)
+        local left = ns.Data.instances[leftKey]
+        local right = ns.Data.instances[rightKey]
+        local leftExpansion = EXPANSION_ORDER[left.contentExpansion] or 1
+        local rightExpansion = EXPANSION_ORDER[right.contentExpansion] or 1
+        if leftExpansion ~= rightExpansion then
+            return leftExpansion < rightExpansion
+        end
+        if (left.levelMin or 0) ~= (right.levelMin or 0) then
+            return (left.levelMin or 0) < (right.levelMin or 0)
+        end
+        if (left.levelMax or 0) ~= (right.levelMax or 0) then
+            return (left.levelMax or 0) < (right.levelMax or 0)
+        end
+        return (left.name or leftKey) < (right.name or rightKey)
+    end)
+    return keys
+end
+
+local function SupportsClientFlavor(record, flavor)
+    return ns.Constants.SupportsRecordFlavor(record, flavor)
+end
+
+local function SupportsDifficulty(record, difficulty)
+    return record and (not record.difficulties or record.difficulties[difficulty or "normal"])
+end
+
+-- Available difficulty keys of an instance in display order; no list means normal only.
+local function GetAvailableDifficulties(instance)
+    local available = {}
+    local difficulties = instance and instance.difficulties
+    if type(difficulties) == "table" then
+        for _, difficulty in ipairs(ns.Constants.DIFFICULTY_ORDER) do
+            if difficulties[difficulty] then
+                table.insert(available, difficulty)
+            end
+        end
+    end
+    if #available == 0 then
+        table.insert(available, "normal")
+    end
+    return available
+end
+
+local function IsDifficultyAvailable(instance, difficulty)
+    for _, available in ipairs(GetAvailableDifficulties(instance)) do
+        if available == difficulty then
+            return true
+        end
+    end
+    return false
+end
+
+-- Floors of an instance map, or nil when the map record is unusable.
+local function GetMapFloors(instance)
+    local mapData = instance and instance.map
+    if type(mapData) ~= "table" or not mapData.textureFolder
+        or type(mapData.floors) ~= "table" or not mapData.floors[1] then
+        return nil
+    end
+    return mapData.floors
+end
+
+-- WotLK tables (Trial of the Crusader, Vault of Archavon) list an Alliance and a
+-- Horde version of most items; under wotlk only the player's faction is shown
+-- unless the "show both factions" setting is on.
+local function GetHiddenFaction(flavor)
+    if flavor ~= ns.Constants.CLIENT_WOTLK then
+        return nil
+    end
+    local database = ns.modules.Database and ns.modules.Database.data
+    local browserSettings = database and database.settings and database.settings.browser
+    if browserSettings and browserSettings.showOtherFaction then
+        return nil
+    end
+    local playerFaction = UnitFactionGroup("player")
+    if playerFaction == "Alliance" then
+        return "horde"
+    elseif playerFaction == "Horde" then
+        return "alliance"
+    end
+    return nil
+end
+
+local function GetVisibleLootItems(boss, difficulty)
+    local flavor = ns.Constants.GetClientFlavor()
+    local hiddenFaction = GetHiddenFaction(flavor)
+    local items = {}
+    for _, item in ipairs(boss and boss.items or {}) do
+        if item.itemID and SupportsClientFlavor(item, flavor)
+            and SupportsDifficulty(item, difficulty) then
+            local faction = ns.Constants.GetFlavorValue(item.factionAvailabilityByFlavor, flavor)
+                or item.factionAvailability
+            if not hiddenFaction or faction ~= hiddenFaction then
+                table.insert(items, item)
+            end
+        end
+    end
+    return items
+end
+
+local function GetInstanceEntryKeys(instance, instanceLoot, difficulty)
+    local flavor = ns.Constants.GetClientFlavor()
+    instanceLoot = instanceLoot or (ns.Data.loot and ns.Data.loot[instance.key]) or {}
+    local keys = {}
+    for _, bossKey in ipairs(instance.bosses or {}) do
+        if bossKey ~= TRASH_DROPS_KEY
+            and SupportsClientFlavor(instanceLoot[bossKey], flavor)
+            and SupportsDifficulty(instanceLoot[bossKey], difficulty) then
+            table.insert(keys, bossKey)
+        end
+    end
+    -- WotLK trash only drops in some difficulties; skip an entry that would be empty.
+    local trash = instanceLoot[TRASH_DROPS_KEY]
+    if SupportsClientFlavor(trash, flavor) and (difficulty == nil or trash.lootStatus
+        or #GetVisibleLootItems(trash, difficulty) > 0) then
+        table.insert(keys, TRASH_DROPS_KEY)
+    end
+    return keys
+end
+
+function MainWindow:CreateTitle(parent)
+    local titleBar = parent:CreateTexture(nil, "BACKGROUND")
+    titleBar:SetPoint("TOPLEFT", 5, -5)
+    titleBar:SetPoint("TOPRIGHT", -5, -5)
+    titleBar:SetHeight(42)
+    Compat.SetSolidColor(titleBar, 0.08, 0.07, 0.055, 1)
+
+    local icon = parent:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(28, 28)
+    icon:SetPoint("TOPLEFT", 15, -12)
+    icon:SetTexture("Interface\\AddOns\\AtlasLootRevival\\assets\\minimap-icon.tga")
+
+    local title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("LEFT", icon, "RIGHT", 9, 1)
+    title:SetText(ns.L.ADDON_NAME)
+    title:SetTextColor(0.95, 0.75, 0.30)
+
+    local version = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    version:SetPoint("LEFT", title, "RIGHT", 8, -1)
+    version:SetText("v" .. ns.Constants.VERSION)
+    version:SetTextColor(0.48, 0.48, 0.48)
+
+    local close = CreateFrame("Button", nil, parent, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -7, -7)
+    close:SetScript("OnClick", function()
+        if ns.modules.SettingsPanel then
+            ns.modules.SettingsPanel:Hide()
+        end
+        MainWindow.frame:Hide()
+    end)
+
+    local settingsButton = CreateFrame("Button", nil, parent)
+    settingsButton:SetSize(18, 18)
+    settingsButton:SetPoint("RIGHT", close, "LEFT", -3, 0)
+    -- Interface\Buttons\UI-OptionsButton is not in the 3.3.5a client; use the gear icon.
+    settingsButton:SetNormalTexture("Interface\\Icons\\INV_Misc_Gear_01")
+    settingsButton:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    settingsButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    settingsButton:SetScript("OnEnter", function(entered)
+        GameTooltip:SetOwner(entered, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(ns.L.OPTIONS, 1, 0.82, 0.38)
+        GameTooltip:Show()
+    end)
+    settingsButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    settingsButton:SetScript("OnClick", function()
+        ns.modules.SettingsPanel:Toggle()
+    end)
+    self.settingsButton = settingsButton
+end
+
+function MainWindow:CreateSidebar(parent)
+    local panel = CreateBackdropFrame("Frame", nil, parent)
+    panel:SetPoint("TOPLEFT", 12, -55)
+    panel:SetPoint("BOTTOMLEFT", 12, 34)
+    panel:SetWidth(SIDEBAR_WIDTH)
+    SetBackdropColor(panel, 0.035, 0.035, 0.035, 0.96)
+
+    self.contentTypeButtons = {}
+    local contentTypes = {
+        { key = "dungeon", label = ns.L.DUNGEONS },
+        { key = "raid", label = ns.L.RAIDS },
+    }
+    for index, contentType in ipairs(contentTypes) do
+        local button = CreateFrame("Button", nil, panel)
+        button:SetPoint("TOPLEFT", 8 + ((index - 1) * 79), -7)
+        button:SetSize(77, 19)
+        button.background = button:CreateTexture(nil, "BACKGROUND")
+        button.background:SetAllPoints()
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button.label:SetPoint("CENTER")
+        button.label:SetText(contentType.label)
+        button.contentType = contentType.key
+        button:SetScript("OnClick", function(clicked)
+            MainWindow:SelectContentType(clicked.contentType)
+        end)
+        self.contentTypeButtons[contentType.key] = button
+    end
+
+    local dungeonButton = CreateFrame("Button", nil, panel)
+    dungeonButton:SetPoint("TOPLEFT", 8, -30)
+    dungeonButton:SetPoint("TOPRIGHT", -8, -30)
+    dungeonButton:SetHeight(42)
+    dungeonButton.background = dungeonButton:CreateTexture(nil, "BACKGROUND")
+    dungeonButton.background:SetAllPoints()
+    Compat.SetSolidColor(dungeonButton.background, selectedColor[1], selectedColor[2], selectedColor[3], 0.24)
+    dungeonButton.label = dungeonButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    dungeonButton.label:SetPoint("TOPLEFT", 8, -6)
+    dungeonButton.label:SetPoint("TOPRIGHT", -34, -6)
+    dungeonButton.label:SetHeight(14)
+    dungeonButton.label:SetJustifyH("CENTER")
+    dungeonButton.label:SetJustifyV("TOP")
+    dungeonButton.label:SetWordWrap(false)
+    dungeonButton.label:SetTextColor(1, 0.82, 0.38)
+    dungeonButton.range = dungeonButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dungeonButton.range:SetPoint("BOTTOM", 0, 6)
+    dungeonButton.range:SetTextColor(0.55, 0.55, 0.55)
+    dungeonButton.arrow = dungeonButton:CreateTexture(nil, "ARTWORK")
+    dungeonButton.arrow:SetSize(22, 22)
+    dungeonButton.arrow:SetPoint("RIGHT", -6, 0)
+    dungeonButton.arrow:SetTexture("Interface\\AddOns\\AtlasLootRevival\\assets\\dropdown-chevron.tga")
+    dungeonButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    dungeonButton:SetScript("OnClick", function()
+        MainWindow:ToggleInstanceMenu()
+    end)
+    self.dungeonButton = dungeonButton
+
+    local instanceMenu = CreateBackdropFrame("Frame", nil, parent)
+    instanceMenu:SetWidth(266)
+    instanceMenu:SetPoint("TOPLEFT", dungeonButton, "TOPRIGHT", 6, 0)
+    instanceMenu:SetFrameLevel(parent:GetFrameLevel() + 30)
+    instanceMenu:SetClampedToScreen(true)
+    SetBackdropColor(instanceMenu, 0.025, 0.025, 0.025, 0.99)
+    instanceMenu:EnableMouseWheel(true)
+    instanceMenu:SetScript("OnMouseWheel", function(_, delta)
+        MainWindow:ScrollInstanceMenu(delta > 0 and -3 or 3)
+    end)
+    instanceMenu.title = instanceMenu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    instanceMenu.title:SetPoint("TOPLEFT", 10, -9)
+    instanceMenu.title:SetTextColor(1, 0.82, 0.38)
+    instanceMenu.scrollbar = CreateFrame("Slider", nil, instanceMenu)
+    instanceMenu.scrollbar:SetOrientation("VERTICAL")
+    instanceMenu.scrollbar:SetPoint("TOPRIGHT", -6, -31)
+    instanceMenu.scrollbar:SetPoint("BOTTOMRIGHT", -6, 7)
+    instanceMenu.scrollbar:SetWidth(10)
+    instanceMenu.scrollbar:SetMinMaxValues(0, 0)
+    instanceMenu.scrollbar:SetValueStep(1)
+    if instanceMenu.scrollbar.SetObeyStepOnDrag then
+        instanceMenu.scrollbar:SetObeyStepOnDrag(true)
+    end
+    instanceMenu.scrollbar.track = instanceMenu.scrollbar:CreateTexture(nil, "BACKGROUND")
+    instanceMenu.scrollbar.track:SetPoint("TOP", 0, 0)
+    instanceMenu.scrollbar.track:SetPoint("BOTTOM", 0, 0)
+    instanceMenu.scrollbar.track:SetWidth(4)
+    Compat.SetSolidColor(instanceMenu.scrollbar.track, 0.18, 0.18, 0.18, 0.9)
+    instanceMenu.scrollbar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    local instanceMenuThumb = instanceMenu.scrollbar:GetThumbTexture()
+    instanceMenuThumb:SetSize(8, 32)
+    Compat.SetSolidColor(instanceMenuThumb, 0.82, 0.64, 0.28, 0.95)
+    instanceMenu.scrollbar:SetScript("OnValueChanged", function(scrollbar, value)
+        if scrollbar.updatingRange then
+            return
+        end
+        local offset = math.floor(value + 0.5)
+        if offset ~= MainWindow.instanceMenuOffset then
+            MainWindow.instanceMenuOffset = offset
+            MainWindow:RefreshInstanceMenu()
+        end
+    end)
+    instanceMenu.buttons = {}
+    for index = 1, MAX_INSTANCE_MENU_BUTTONS do
+        local button = CreateFrame("Button", nil, instanceMenu)
+        button:SetPoint("TOPLEFT", 7, -30 - ((index - 1) * 23))
+        button:SetPoint("TOPRIGHT", -21, -30 - ((index - 1) * 23))
+        button:SetHeight(22)
+        button.background = button:CreateTexture(nil, "BACKGROUND")
+        button.background:SetAllPoints()
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.label:SetPoint("LEFT", 7, 0)
+        button.label:SetPoint("RIGHT", -59, 0)
+        button.label:SetJustifyH("LEFT")
+        button.label:SetWordWrap(false)
+        button.range = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.range:SetPoint("RIGHT", -7, 0)
+        button.range:SetWidth(48)
+        button.range:SetJustifyH("RIGHT")
+        button.range:SetTextColor(0.55, 0.55, 0.55)
+        button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        button:SetScript("OnClick", function(clicked)
+            instanceMenu:Hide()
+            MainWindow:SelectInstance(clicked.instanceKey)
+        end)
+        button:Hide()
+        instanceMenu.buttons[index] = button
+    end
+    instanceMenu:Hide()
+    self.instanceMenu = instanceMenu
+
+    self.encounterHeading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.encounterHeading:SetPoint("TOPLEFT", 12, -88)
+    self.encounterHeading:SetText(ns.L.ENCOUNTERS)
+    self.encounterHeading:SetTextColor(0.62, 0.62, 0.62)
+
+    self.encounterUp = CreateFrame("Button", nil, panel)
+    self.encounterUp:SetPoint("TOPRIGHT", -31, -78)
+    self.encounterUp:SetSize(18, 18)
+    self.encounterUp.label = self.encounterUp:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    self.encounterUp.label:SetPoint("CENTER")
+    self.encounterUp.label:SetText("‹")
+    self.encounterUp:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    self.encounterUp:SetScript("OnClick", function()
+        MainWindow:ScrollEncounterList(-MAX_ENCOUNTER_BUTTONS)
+    end)
+
+    self.encounterDown = CreateFrame("Button", nil, panel)
+    self.encounterDown:SetPoint("LEFT", self.encounterUp, "RIGHT", 2, 0)
+    self.encounterDown:SetSize(18, 18)
+    self.encounterDown.label = self.encounterDown:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    self.encounterDown.label:SetPoint("CENTER")
+    self.encounterDown.label:SetText("›")
+    self.encounterDown:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    self.encounterDown:SetScript("OnClick", function()
+        MainWindow:ScrollEncounterList(MAX_ENCOUNTER_BUTTONS)
+    end)
+
+    panel:EnableMouseWheel(true)
+    panel:SetScript("OnMouseWheel", function(_, delta)
+        MainWindow:ScrollEncounterList(delta > 0 and -4 or 4)
+    end)
+
+    self.bossButtonRows = {}
+    for index = 1, MAX_ENCOUNTER_BUTTONS do
+        local button = CreateFrame("Button", nil, panel)
+        button:SetPoint("TOPLEFT", 8, -102 - ((index - 1) * 25))
+        button:SetPoint("TOPRIGHT", -8, -102 - ((index - 1) * 25))
+        button:SetHeight(23)
+        button.background = button:CreateTexture(nil, "BACKGROUND")
+        button.background:SetAllPoints()
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.label:SetPoint("LEFT", 28, 0)
+        button.label:SetPoint("RIGHT", -5, 0)
+        button.label:SetJustifyH("LEFT")
+        button.number = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button.number:SetPoint("LEFT", 9, 0)
+        button.number:SetTextColor(0.58, 0.58, 0.58)
+        button:SetScript("OnClick", function(clicked)
+            MainWindow:SelectBoss(clicked.bossKey)
+        end)
+        button:Hide()
+        self.bossButtonRows[index] = button
+    end
+end
+
+function MainWindow:CreateMap(parent)
+    self.mapHeading = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.mapHeading:SetPoint("TOPLEFT", MAP_LEFT + 4, -62)
+    self.mapHeading:SetTextColor(0.68, 0.68, 0.68)
+
+    local floorButton = CreateFrame("Button", nil, parent)
+    floorButton:SetSize(232, 24)
+    floorButton:SetPoint("TOPRIGHT", -MAP_RIGHT_OFFSET, -55)
+    floorButton.background = floorButton:CreateTexture(nil, "BACKGROUND")
+    floorButton.background:SetAllPoints()
+    Compat.SetSolidColor(floorButton.background, selectedColor[1], selectedColor[2], selectedColor[3], 0.12)
+    floorButton.label = floorButton:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    floorButton.label:SetPoint("LEFT", 9, 0)
+    floorButton.label:SetPoint("RIGHT", -104, 0)
+    floorButton.label:SetJustifyH("LEFT")
+    floorButton.label:SetWordWrap(false)
+    floorButton.counter = floorButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    floorButton.counter:SetPoint("RIGHT", -42, 0)
+    floorButton.counter:SetWidth(48)
+    floorButton.counter:SetJustifyH("RIGHT")
+    floorButton.counter:SetTextColor(1, 0.82, 0.38)
+    floorButton.arrow = floorButton:CreateTexture(nil, "ARTWORK")
+    floorButton.arrow:SetSize(24, 24)
+    floorButton.arrow:SetPoint("RIGHT", -7, 0)
+    floorButton.arrow:SetTexture("Interface\\AddOns\\AtlasLootRevival\\assets\\dropdown-chevron.tga")
+    floorButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    floorButton:SetScript("OnClick", function()
+        MainWindow:ToggleFloorMenu()
+    end)
+    floorButton:SetScript("OnEnter", function(entered)
+        local floors = GetMapFloors(ns.Data.instances[MainWindow.selectedInstanceKey])
+        if floors and #floors > 1 then
+            GameTooltip:SetOwner(entered, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine(string.format(ns.L.MULTI_FLOOR_TOOLTIP,
+                #floors), 1, 0.82, 0.38)
+            GameTooltip:AddLine(ns.L.CLICK_TO_CHOOSE_FLOOR, 0.72, 0.72, 0.72)
+            GameTooltip:Show()
+        end
+    end)
+    floorButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    floorButton:Hide()
+    self.floorButton = floorButton
+
+    local floorMenu = CreateBackdropFrame("Frame", nil, parent)
+    floorMenu:SetWidth(220)
+    floorMenu:SetPoint("TOPRIGHT", floorButton, "BOTTOMRIGHT", 0, -3)
+    floorMenu:SetFrameLevel(parent:GetFrameLevel() + 30)
+    floorMenu:SetClampedToScreen(true)
+    SetBackdropColor(floorMenu, 0.025, 0.025, 0.025, 0.99)
+    floorMenu.buttons = {}
+    for index = 1, MAX_FLOOR_MENU_BUTTONS do
+        local button = CreateFrame("Button", nil, floorMenu)
+        button:SetPoint("TOPLEFT", 7, -7 - ((index - 1) * 23))
+        button:SetPoint("TOPRIGHT", -7, -7 - ((index - 1) * 23))
+        button:SetHeight(22)
+        button.background = button:CreateTexture(nil, "BACKGROUND")
+        button.background:SetAllPoints()
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.label:SetPoint("LEFT", 7, 0)
+        button.label:SetPoint("RIGHT", -48, 0)
+        button.label:SetJustifyH("LEFT")
+        button.label:SetWordWrap(false)
+        button.counter = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button.counter:SetPoint("RIGHT", -7, 0)
+        button.counter:SetWidth(38)
+        button.counter:SetJustifyH("RIGHT")
+        button.counter:SetTextColor(0.58, 0.58, 0.58)
+        button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        button:SetScript("OnClick", function(clicked)
+            floorMenu:Hide()
+            MainWindow:SelectFloor(clicked.floorIndex)
+        end)
+        button:Hide()
+        floorMenu.buttons[index] = button
+    end
+    floorMenu:Hide()
+    self.floorMenu = floorMenu
+
+    local map = CreateBackdropFrame("Frame", nil, parent)
+    map:SetSize(MAP_WIDTH + MAP_OUTER_PADDING, MAP_HEIGHT + MAP_OUTER_PADDING)
+    map:SetPoint("TOPLEFT", MAP_LEFT, -80)
+    SetBackdropColor(map, 0.015, 0.015, 0.015, 1)
+    self.map = map
+
+    local canvas = CreateFrame("Frame", nil, map)
+    canvas:SetSize(MAP_WIDTH, MAP_HEIGHT)
+    canvas:SetPoint("CENTER")
+    -- 3.3.5a has no SetClipsChildren; the 4x3 tiles fill the canvas and pins are clamped.
+    if canvas.SetClipsChildren then
+        canvas:SetClipsChildren(true)
+    end
+    self.mapCanvas = canvas
+
+    self.mapEmptyText = canvas:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    self.mapEmptyText:SetPoint("CENTER")
+    self.mapEmptyText:SetText(ns.L.MAP_NOT_AVAILABLE)
+    self.mapEmptyText:SetTextColor(0.62, 0.62, 0.62)
+    self.mapEmptyText:Hide()
+
+    self.mapTiles = {}
+    for tileIndex = 1, 12 do
+        local column = (tileIndex - 1) % 4
+        local row = math.floor((tileIndex - 1) / 4)
+        local tile = canvas:CreateTexture(nil, "ARTWORK")
+        tile:SetSize(TILE_SIZE, TILE_SIZE)
+        tile:SetPoint("TOPLEFT", column * TILE_SIZE, -(row * TILE_SIZE))
+        tile:SetVertexColor(0.88, 0.88, 0.88)
+        self.mapTiles[tileIndex] = tile
+    end
+
+    self.mapPinRows = {}
+    for index = 1, MAX_MAP_PINS do
+        local pin = CreateFrame("Button", nil, canvas)
+        pin:SetSize(22, 22)
+        pin:SetHitRectInsets(0, 0, 0, 0)
+        pin:SetFrameLevel(canvas:GetFrameLevel() + 5)
+        local marker = pin:CreateTexture(nil, "ARTWORK")
+        marker:SetSize(18, 18)
+        marker:SetPoint("CENTER")
+        marker:SetTexture("Interface\\AddOns\\AtlasLootRevival\\assets\\boss-marker.tga")
+        pin.marker = marker
+        local ring = pin:CreateTexture(nil, "OVERLAY")
+        ring:SetSize(24, 24)
+        ring:SetPoint("CENTER")
+        ring:SetTexture("Interface\\AddOns\\AtlasLootRevival\\assets\\boss-marker-ring.tga")
+        ring:SetBlendMode("ADD")
+        ring:Hide()
+        pin.ring = ring
+        local number = pin:CreateFontString(nil, "OVERLAY")
+        number:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+        number:SetPoint("LEFT", pin, "RIGHT", 2, 0)
+        number:SetTextColor(1, 0.82, 0.32)
+        number:SetShadowColor(0, 0, 0, 1)
+        number:SetShadowOffset(1, -1)
+        pin.number = number
+        pin:SetScript("OnClick", function(clicked)
+            if clicked.bossKeys and #clicked.bossKeys > 1 then
+                MainWindow:ShowMapClusterMenu(clicked)
+            elseif clicked.bossKeys and clicked.bossKeys[1] then
+                if MainWindow.mapClusterMenu then
+                    MainWindow.mapClusterMenu:Hide()
+                end
+                MainWindow:SelectBoss(clicked.bossKeys[1])
+            end
+        end)
+        pin:SetScript("OnEnter", function(entered)
+            local instanceLoot = ns.Data.loot[MainWindow.selectedInstanceKey]
+            if not instanceLoot or not entered.bossKeys or not entered.bossKeys[1] then
+                return
+            end
+            ShowMapPinRing(entered, entered.isSelected and 1 or 0.88)
+            GameTooltip:SetOwner(entered, "ANCHOR_RIGHT")
+            if #entered.bossKeys > 1 then
+                GameTooltip:AddLine(string.format(ns.L.SHARED_LOCATION,
+                    #entered.bossKeys), 1, 0.82, 0.38)
+                for bossIndex, bossKey in ipairs(entered.bossKeys) do
+                    local encounter = instanceLoot[bossKey]
+                    if encounter then
+                        GameTooltip:AddLine(string.format("%d. %s",
+                            entered.encounterIndexes[bossIndex], encounter.name or bossKey),
+                            0.92, 0.92, 0.92)
+                    end
+                end
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(ns.L.CLICK_TO_CHOOSE, 0.72, 0.72, 0.72)
+            else
+                local encounter = instanceLoot[entered.bossKeys[1]] or {}
+                GameTooltip:AddLine(encounter.name or entered.bossKeys[1], 1, 0.82, 0.38)
+                GameTooltip:AddLine(ns.L.CLICK_TO_VIEW_LOOT, 0.72, 0.72, 0.72)
+            end
+            GameTooltip:Show()
+        end)
+        pin:SetScript("OnLeave", function(left)
+            if not left.isSelected then
+                if left.isCluster then
+                    ShowMapPinRing(left, 0.82)
+                else
+                    left.ring:Hide()
+                end
+            end
+            GameTooltip:Hide()
+        end)
+        pin:Hide()
+        self.mapPinRows[index] = pin
+    end
+
+    local clusterMenu = CreateBackdropFrame("Frame", nil, parent)
+    clusterMenu:SetWidth(224)
+    clusterMenu:SetFrameLevel(parent:GetFrameLevel() + 30)
+    clusterMenu:SetClampedToScreen(true)
+    SetBackdropColor(clusterMenu, 0.025, 0.025, 0.025, 0.98)
+    clusterMenu.title = clusterMenu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    clusterMenu.title:SetPoint("TOPLEFT", 10, -9)
+    clusterMenu.title:SetText(ns.L.CHOOSE_ENCOUNTER)
+    clusterMenu.title:SetTextColor(1, 0.82, 0.38)
+    local closeCluster = CreateFrame("Button", nil, clusterMenu, "UIPanelCloseButton")
+    closeCluster:SetSize(26, 26)
+    closeCluster:SetPoint("TOPRIGHT", -2, -2)
+    closeCluster:SetScript("OnClick", function()
+        clusterMenu:Hide()
+    end)
+    clusterMenu.buttons = {}
+    for index = 1, MAX_CLUSTER_BUTTONS do
+        local button = CreateFrame("Button", nil, clusterMenu)
+        button:SetPoint("TOPLEFT", 7, -31 - ((index - 1) * 22))
+        button:SetPoint("TOPRIGHT", -7, -31 - ((index - 1) * 22))
+        button:SetHeight(21)
+        button.number = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button.number:SetPoint("LEFT", 5, 0)
+        button.number:SetWidth(24)
+        button.number:SetJustifyH("RIGHT")
+        button.number:SetTextColor(1, 0.82, 0.38)
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.label:SetPoint("LEFT", button.number, "RIGHT", 8, 0)
+        button.label:SetPoint("RIGHT", -5, 0)
+        button.label:SetJustifyH("LEFT")
+        button.label:SetWordWrap(false)
+        button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        button:SetScript("OnClick", function(clicked)
+            clusterMenu:Hide()
+            MainWindow:SelectBoss(clicked.bossKey)
+        end)
+        button:Hide()
+        clusterMenu.buttons[index] = button
+    end
+    clusterMenu:Hide()
+    self.mapClusterMenu = clusterMenu
+
+    local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    note:SetPoint("TOPLEFT", map, "BOTTOMLEFT", 5, -9)
+    note:SetText(ns.L.MAP_HINT)
+    note:SetTextColor(0.48, 0.48, 0.48)
+
+    local database = ns.modules.Database.data
+    local mapSettings = database and database.settings.map or {}
+    self:SetMapMarkerSize(mapSettings.markerSize or "normal", false)
+end
+
+function MainWindow:CreateLootPanel(parent)
+    local panel = CreateBackdropFrame("Frame", nil, parent)
+    panel:SetPoint("TOPLEFT", LOOT_PANEL_LEFT, -55)
+    panel:SetPoint("BOTTOMRIGHT", -12, 34)
+    SetBackdropColor(panel, 0.035, 0.035, 0.035, 0.96)
+    panel:EnableMouseWheel(true)
+    panel:SetScript("OnMouseWheel", function(_, delta)
+        MainWindow:ScrollLootList(delta > 0 and -4 or 4)
+    end)
+    self.lootPanel = panel
+
+    self.bossTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    self.bossTitle:SetPoint("TOPLEFT", 13, -15)
+    self.bossTitle:SetPoint("TOPRIGHT", -13, -15)
+    self.bossTitle:SetJustifyH("LEFT")
+    self.bossTitle:SetTextColor(1, 0.82, 0.38)
+
+    -- Fixed two-line box beside the difficulty buttons, or one full-width line when
+    -- the buttons need their own row (see RefreshDifficultyButtons).
+    self.bossMeta = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    self.bossMeta:SetPoint("TOPLEFT", self.bossTitle, "BOTTOMLEFT", 0, -5)
+    self.bossMeta:SetSize(LOOT_PANEL_WIDTH - (LOOT_HEADER_INSET * 2), BOSS_META_LINE_HEIGHT * 2)
+    self.bossMeta:SetJustifyH("LEFT")
+    self.bossMeta:SetJustifyV("TOP")
+    self.bossMeta:SetTextColor(0.52, 0.52, 0.52)
+
+    -- One button per difficulty key; RefreshDifficultyButtons shows and places the
+    -- ones the selected instance offers, right-aligned in the header.
+    self.difficultyButtons = {}
+    for _, difficulty in ipairs(ns.Constants.DIFFICULTY_ORDER) do
+        local button = CreateFrame("Button", nil, panel)
+        button.background = button:CreateTexture(nil, "BACKGROUND")
+        button.background:SetAllPoints()
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        button.label:SetPoint("CENTER")
+        button.label:SetText(DIFFICULTY_LABELS[difficulty])
+        button:SetSize(math.max(22, math.ceil(button.label:GetStringWidth())
+            + DIFFICULTY_BUTTON_PADDING), 18)
+        button.difficulty = difficulty
+        button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        button:SetScript("OnClick", function(clicked)
+            MainWindow:SelectDifficulty(clicked.difficulty)
+        end)
+        button:SetScript("OnEnter", function(entered)
+            GameTooltip:SetOwner(entered, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine(string.format(ns.L.DIFFICULTY_TOOLTIP,
+                DIFFICULTY_NAMES[entered.difficulty]), 1, 0.82, 0.38)
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        button:Hide()
+        self.difficultyButtons[difficulty] = button
+    end
+
+    -- The divider, headings, scrollbar, rows and empty text are anchored by SetLootListShift.
+    local divider = panel:CreateTexture(nil, "ARTWORK")
+    divider:SetHeight(1)
+    Compat.SetSolidColor(divider, 0.25, 0.21, 0.12, 1)
+    self.lootDivider = divider
+
+    self.lootHeading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.lootHeading:SetText(ns.L.LOOT)
+    self.lootHeading:SetTextColor(0.62, 0.62, 0.62)
+
+    self.dropChanceHeading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.dropChanceHeading:SetText(ns.L.DROP_CHANCE_HEADING)
+    self.dropChanceHeading:SetTextColor(0.62, 0.62, 0.62)
+
+    self.lootScrollbar = CreateFrame("Slider", nil, panel)
+    self.lootScrollbar:SetOrientation("VERTICAL")
+    self.lootScrollbar:SetWidth(10)
+    self.lootScrollbar:SetMinMaxValues(0, 0)
+    self.lootScrollbar:SetValueStep(1)
+    if self.lootScrollbar.SetObeyStepOnDrag then
+        self.lootScrollbar:SetObeyStepOnDrag(true)
+    end
+    self.lootScrollbar.track = self.lootScrollbar:CreateTexture(nil, "BACKGROUND")
+    self.lootScrollbar.track:SetPoint("TOP", 0, 0)
+    self.lootScrollbar.track:SetPoint("BOTTOM", 0, 0)
+    self.lootScrollbar.track:SetWidth(4)
+    Compat.SetSolidColor(self.lootScrollbar.track, 0.18, 0.18, 0.18, 0.9)
+    self.lootScrollbar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    local lootScrollbarThumb = self.lootScrollbar:GetThumbTexture()
+    lootScrollbarThumb:SetSize(8, 32)
+    Compat.SetSolidColor(lootScrollbarThumb, 0.82, 0.64, 0.28, 0.95)
+    self.lootScrollbar:SetScript("OnValueChanged", function(scrollbar, value)
+        if scrollbar.updatingRange then
+            return
+        end
+        local offset = math.floor(value + 0.5)
+        if offset ~= MainWindow.lootOffset then
+            MainWindow.lootOffset = offset
+            MainWindow:RefreshLoot()
+        end
+    end)
+
+    self.lootRows = {}
+    for index = 1, MAX_LOOT_ROWS do
+        local row = CreateFrame("Button", nil, panel)
+        row:SetHeight(LOOT_ROW_HEIGHT)
+        row.background = row:CreateTexture(nil, "BACKGROUND")
+        row.background:SetAllPoints()
+        Compat.SetSolidColor(row.background, 1, 1, 1, 0.025)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(20, 20)
+        row.icon:SetPoint("LEFT", 4, 0)
+        row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 0)
+        row.name:SetPoint("TOPRIGHT", -50, 0)
+        row.name:SetHeight(12)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetJustifyV("TOP")
+        row.name:SetWordWrap(false)
+        row.meta = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.meta:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 0)
+        row.meta:SetPoint("BOTTOMRIGHT", -50, 0)
+        row.meta:SetHeight(10)
+        row.meta:SetJustifyH("LEFT")
+        row.meta:SetJustifyV("BOTTOM")
+        row.meta:SetWordWrap(false)
+        row.meta:SetTextColor(0.45, 0.45, 0.45)
+        row.chance = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.chance:SetPoint("RIGHT", -4, 0)
+        row.chance:SetWidth(42)
+        row.chance:SetJustifyH("RIGHT")
+        row.chance:SetTextColor(0.92, 0.72, 0.30)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        row:SetScript("OnEnter", function(entered)
+            if entered.itemID then
+                GameTooltip:SetOwner(entered, "ANCHOR_LEFT")
+                -- The hyperlink also asks the server for an uncached item.
+                GameTooltip:SetHyperlink("item:" .. entered.itemID .. ":0:0:0:0:0:0:0")
+                if not GetItemInfo(entered.itemID) then
+                    -- Placeholder until the server answers; 3.3.5a would show an empty tooltip.
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(string.format(ns.L.LOADING_ITEM, entered.itemID),
+                        0.70, 0.70, 0.70)
+                    GameTooltip:AddLine(RETRIEVING_ITEM_INFO or "Retrieving item information",
+                        1, 0.13, 0.13)
+                    Compat.WatchItemInfo(entered.itemID)
+                end
+                local questID = entered.questID
+                    or (entered.questIDs and entered.questIDs[1])
+                if entered.category == "questObjective" then
+                    if entered.questIDs and #entered.questIDs > 1 then
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine(string.format(ns.L.QUEST_OBJECTIVE_MULTI_TOOLTIP,
+                            JoinQuestIDs(entered.questIDs)), 1, 0.82, 0.38)
+                    elseif questID then
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine(string.format(ns.L.QUEST_OBJECTIVE_TOOLTIP,
+                            questID), 1, 0.82, 0.38)
+                    end
+                elseif entered.category == "startsQuest" and questID then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(string.format(ns.L.STARTS_QUEST_TOOLTIP,
+                        questID), 1, 0.82, 0.38)
+                end
+                if entered.turnInToken then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(ns.L.TURN_IN_TOKEN_TOOLTIP, 1, 0.82, 0.38)
+                end
+                if entered.hardMode then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(ns.L.HARD_MODE_TOOLTIP, 1, 0.82, 0.38)
+                end
+                if entered.tributeAttempts then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(string.format(ns.L.TRIBUTE_ATTEMPTS_TOOLTIP,
+                        entered.tributeAttempts), 1, 0.82, 0.38, 1)
+                end
+                if entered.factionAvailability == "alliance" then
+                    GameTooltip:AddLine(ns.L.ALLIANCE_ONLY, 0.45, 0.65, 1)
+                elseif entered.factionAvailability == "horde" then
+                    GameTooltip:AddLine(ns.L.HORDE_ONLY, 1, 0.35, 0.25)
+                end
+                if entered.dropChance then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(string.format(ns.L.DROP_CHANCE_TOOLTIP,
+                        FormatDropChance(entered.dropChance)), 0.92, 0.72, 0.30)
+                elseif entered.isTrashDrop and entered.dropChanceStatus then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(ns.L.DROP_VARIES_TOOLTIP, 0.72, 0.72, 0.72)
+                elseif entered.dropChanceStatus then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(ns.L.DROP_PENDING_TOOLTIP, 0.72, 0.72, 0.72)
+                end
+                GameTooltip:Show()
+            end
+        end)
+        row:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        row:SetScript("OnClick", function(clicked)
+            -- The row may have been drawn before the item reached the cache.
+            local link = clicked.itemLink
+                or (clicked.itemID and select(2, GetItemInfo(clicked.itemID)))
+            if link and HandleModifiedItemClick then
+                HandleModifiedItemClick(link)
+            end
+        end)
+        row:Hide()
+        self.lootRows[index] = row
+    end
+
+    self.emptyLootText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    self.emptyLootText:SetJustifyH("LEFT")
+    self.emptyLootText:SetText(ns.L.NO_NOTABLE_LOOT)
+    self.emptyLootText:SetTextColor(0.52, 0.52, 0.52)
+    self.emptyLootText:Hide()
+
+    self:SetLootListShift(0)
+end
+
+-- Moves everything from the divider down by `shift` px (the difficulty selector's own row).
+function MainWindow:SetLootListShift(shift)
+    if self.lootListShift == shift then
+        return
+    end
+    self.lootListShift = shift
+    self.lootDivider:ClearAllPoints()
+    self.lootDivider:SetPoint("TOPLEFT", 12, -63 - shift)
+    self.lootDivider:SetPoint("TOPRIGHT", -12, -63 - shift)
+    self.lootHeading:ClearAllPoints()
+    self.lootHeading:SetPoint("TOPLEFT", 13, -76 - shift)
+    self.dropChanceHeading:ClearAllPoints()
+    self.dropChanceHeading:SetPoint("TOPRIGHT", -26, -76 - shift)
+    self.lootScrollbar:ClearAllPoints()
+    self.lootScrollbar:SetPoint("TOPRIGHT", -6, -94 - shift)
+    self.lootScrollbar:SetPoint("BOTTOMRIGHT", -6, 10)
+    for index, row in ipairs(self.lootRows) do
+        local top = -94 - shift - ((index - 1) * LOOT_ROW_STEP)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 9, top)
+        row:SetPoint("TOPRIGHT", -21, top)
+    end
+    self.emptyLootText:ClearAllPoints()
+    self.emptyLootText:SetPoint("TOPLEFT", 16, -105 - shift)
+    self.emptyLootText:SetPoint("TOPRIGHT", -16, -105 - shift)
+end
+
+function MainWindow:CreateResizeHandle(parent)
+    local handle = CreateFrame("Button", nil, parent)
+    handle:SetSize(22, 22)
+    handle:SetPoint("BOTTOMRIGHT", -3, 3)
+    handle:SetFrameLevel(parent:GetFrameLevel() + 20)
+    handle:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    handle:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    handle:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    handle:SetScript("OnMouseDown", function(_, button)
+        if button == "LeftButton" then
+            MainWindow:BeginScaling()
+        end
+    end)
+    handle:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" then
+            MainWindow:EndScaling()
+        end
+    end)
+    handle:SetScript("OnUpdate", function()
+        MainWindow:UpdateScaling()
+    end)
+    handle:SetScript("OnEnter", function(entered)
+        GameTooltip:SetOwner(entered, "ANCHOR_TOPLEFT")
+        GameTooltip:AddLine(ns.L.RESIZE_HINT, 1, 0.82, 0.38)
+        GameTooltip:Show()
+    end)
+    handle:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    self.resizeHandle = handle
+end
+
+function MainWindow:SetWindowScale(scale)
+    scale = ClampWindowScale(scale)
+    self.windowScale = scale
+    if not self.frame then
+        return
+    end
+    self.frame:SetSize(WINDOW_WIDTH * scale, WINDOW_HEIGHT * scale)
+    if self.content then
+        self.content:SetScale(scale)
+    end
+end
+
+function MainWindow:BeginScaling()
+    if not self.frame or self.isScaling then
+        return
+    end
+
+    local left = self.frame:GetLeft()
+    local top = self.frame:GetTop()
+    if left and top then
+        self.frame:ClearAllPoints()
+        self.frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    end
+
+    local cursorX, cursorY = GetCursorPosition()
+    local uiScale = UIParent:GetEffectiveScale()
+    self.scaleStartX = cursorX / uiScale
+    self.scaleStartY = cursorY / uiScale
+    self.scaleStartValue = self.windowScale or 1
+    self.isScaling = true
+end
+
+function MainWindow:UpdateScaling()
+    if not self.isScaling then
+        return
+    end
+    if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then
+        self:EndScaling()
+        return
+    end
+
+    local cursorX, cursorY = GetCursorPosition()
+    local uiScale = UIParent:GetEffectiveScale()
+    cursorX = cursorX / uiScale
+    cursorY = cursorY / uiScale
+    local horizontalScale = self.scaleStartValue + ((cursorX - self.scaleStartX) / WINDOW_WIDTH)
+    local verticalScale = self.scaleStartValue - ((cursorY - self.scaleStartY) / WINDOW_HEIGHT)
+    local horizontalDelta = math.abs(horizontalScale - self.scaleStartValue)
+    local verticalDelta = math.abs(verticalScale - self.scaleStartValue)
+    self:SetWindowScale(horizontalDelta >= verticalDelta and horizontalScale or verticalScale)
+end
+
+function MainWindow:EndScaling()
+    if not self.isScaling then
+        return
+    end
+    self.isScaling = false
+    self:SavePosition()
+end
+
+function MainWindow:Create()
+    if self.frame then
+        return true
+    end
+    if self.createError then
+        return false
+    end
+
+    local frame = CreateFrame("Frame", "AtlasLootRevivalMainFrame", UIParent)
+    self.frame = frame
+    -- A failure part-way must not leave a half-built, unclosable window behind:
+    -- hide it, forget it and report the error once.
+    local ok, err = pcall(self.Build, self, frame)
+    if not ok then
+        frame:Hide()
+        self.frame = nil
+        self.createError = err
+        DEFAULT_CHAT_FRAME:AddMessage("|cffd6a84bAtlasLoot Revival:|r "
+            .. string.format(ns.L.WINDOW_CREATE_FAILED, tostring(err)))
+        geterrorhandler()(err)
+        return false
+    end
+    return true
+end
+
+function MainWindow:Build(frame)
+    frame:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetToplevel(true)
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(window)
+        window:StartMoving()
+    end)
+    frame:SetScript("OnDragStop", function(window)
+        window:StopMovingOrSizing()
+        MainWindow:SavePosition()
+    end)
+    -- Closing (Esc, close button, /alr, minimap) stops item requests for the rows; showing
+    -- the window again redraws them, which queues whatever is still uncached.
+    frame:SetScript("OnHide", function()
+        Compat.CancelItemRequests()
+    end)
+    frame:SetScript("OnShow", function()
+        MainWindow:RefreshLoot()
+    end)
+
+    self:RestorePosition()
+
+    local content = CreateBackdropFrame("Frame", nil, frame)
+    content:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    content:SetPoint("TOPLEFT")
+    content:SetScale(self.windowScale or 1)
+    SetBackdropColor(content, 0.025, 0.025, 0.025, 0.99)
+    self.content = content
+
+    self:CreateTitle(content)
+    ns.modules.SettingsPanel:Create(content, self.settingsButton)
+    self:CreateSidebar(content)
+    self:CreateMap(content)
+    self:CreateLootPanel(content)
+    self:CreateResizeHandle(frame)
+
+    local feedbackDialog = CreateBackdropFrame("Frame", nil, content)
+    feedbackDialog:SetSize(500, 126)
+    feedbackDialog:SetPoint("CENTER", content, "CENTER", 0, 5)
+    feedbackDialog:SetFrameLevel(content:GetFrameLevel() + 50)
+    feedbackDialog:SetClampedToScreen(true)
+    SetBackdropColor(feedbackDialog, 0.025, 0.025, 0.025, 0.99)
+    feedbackDialog.title = feedbackDialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    feedbackDialog.title:SetPoint("TOPLEFT", 16, -15)
+    feedbackDialog.title:SetText(ns.L.FEEDBACK_COPY_TITLE)
+    feedbackDialog.title:SetTextColor(1, 0.82, 0.38)
+    feedbackDialog.body = feedbackDialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    feedbackDialog.body:SetPoint("TOPLEFT", feedbackDialog.title, "BOTTOMLEFT", 0, -7)
+    feedbackDialog.body:SetText(ns.L.FEEDBACK_COPY_BODY)
+    feedbackDialog.body:SetTextColor(0.68, 0.68, 0.68)
+    feedbackDialog.editBox = CreateFrame("EditBox", nil, feedbackDialog, "InputBoxTemplate")
+    feedbackDialog.editBox:SetPoint("BOTTOMLEFT", 16, 16)
+    feedbackDialog.editBox:SetPoint("BOTTOMRIGHT", -16, 16)
+    feedbackDialog.editBox:SetHeight(28)
+    feedbackDialog.editBox:SetAutoFocus(false)
+    feedbackDialog.editBox:SetFontObject("GameFontHighlight")
+    feedbackDialog.editBox:SetScript("OnEscapePressed", function(editBox)
+        editBox:ClearFocus()
+        feedbackDialog:Hide()
+    end)
+    feedbackDialog.editBox:SetScript("OnEnterPressed", function(editBox)
+        editBox:HighlightText()
+    end)
+    feedbackDialog.editBox:SetScript("OnTextChanged", function(editBox, userInput)
+        if userInput then
+            editBox:SetText(ns.L.FEEDBACK_URL)
+            editBox:HighlightText()
+        end
+    end)
+    local closeFeedback = CreateFrame("Button", nil, feedbackDialog, "UIPanelCloseButton")
+    closeFeedback:SetPoint("TOPRIGHT", -3, -3)
+    closeFeedback:SetScript("OnClick", function()
+        feedbackDialog.editBox:ClearFocus()
+        feedbackDialog:Hide()
+    end)
+    feedbackDialog:Hide()
+    self.feedbackDialog = feedbackDialog
+
+    local feedbackLink = CreateFrame("Button", nil, content)
+    feedbackLink:SetPoint("BOTTOMLEFT", 14, 7)
+    feedbackLink:SetPoint("BOTTOMRIGHT", -34, 7)
+    feedbackLink:SetHeight(18)
+    feedbackLink.label = feedbackLink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    feedbackLink.label:SetAllPoints()
+    feedbackLink.label:SetText(ns.L.STATUS_LIVE_QA)
+    feedbackLink.label:SetTextColor(0.52, 0.58, 0.60)
+    feedbackLink.label:SetJustifyH("LEFT")
+    feedbackLink:SetScript("OnEnter", function(entered)
+        feedbackLink.label:SetTextColor(0.20, 0.82, 1)
+        GameTooltip:SetOwner(entered, "ANCHOR_TOPLEFT")
+        GameTooltip:AddLine(ns.L.FEEDBACK_TITLE, 1, 0.82, 0.38)
+        GameTooltip:AddLine(ns.L.FEEDBACK_BODY, 0.82, 0.82, 0.82, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(ns.L.FEEDBACK_CLICK, 0.20, 0.82, 1)
+        GameTooltip:Show()
+    end)
+    feedbackLink:SetScript("OnLeave", function()
+        feedbackLink.label:SetTextColor(0.52, 0.58, 0.60)
+        GameTooltip:Hide()
+    end)
+    feedbackLink:SetScript("OnClick", function()
+        MainWindow:ShowFeedbackDialog()
+    end)
+    self.feedbackLink = feedbackLink
+    if ns.L.FEEDBACK_URL == "" then
+        feedbackLink:EnableMouse(false)
+    end
+
+    table.insert(UISpecialFrames, frame:GetName())
+    local database = ns.modules.Database.data
+    local browserSettings = database and database.settings.browser or {}
+    self.selectedContentType = browserSettings.selectedContentType == "raid"
+        and "raid" or "dungeon"
+    self.selectedInstances = browserSettings.selectedInstances or {}
+    self.selectedDifficulties = browserSettings.selectedDifficulties or {}
+    self.instanceOrder = GetAvailableInstanceKeys(self.selectedContentType)
+    if #self.instanceOrder == 0 then
+        self.selectedContentType = "dungeon"
+        self.instanceOrder = GetAvailableInstanceKeys(self.selectedContentType)
+    end
+    self:RefreshContentTypeButtons()
+    local rememberedInstance = self.selectedInstances[self.selectedContentType]
+    local rememberedData = rememberedInstance and ns.Data.instances[rememberedInstance]
+    local flavor = ns.Constants.GetClientFlavor()
+    if not ns.Constants.SupportsInstanceFlavor(rememberedData, flavor)
+        or (rememberedData.contentType or "dungeon") ~= self.selectedContentType then
+        rememberedInstance = nil
+    end
+    local initialInstance = rememberedInstance
+        or (ns.Data.instances.wailing_caverns and "wailing_caverns")
+        or self.instanceOrder[1]
+    -- A bad data record must not make the whole window unusable; report it and
+    -- open anyway so another instance can be chosen.
+    local selected, selectError = pcall(self.SelectInstance, self, initialInstance)
+    if not selected then
+        geterrorhandler()(selectError)
+    end
+    frame:Hide()
+end
+
+function MainWindow:ShowFeedbackDialog()
+    if not self.feedbackDialog or ns.L.FEEDBACK_URL == "" then
+        return
+    end
+    if self.instanceMenu then
+        self.instanceMenu:Hide()
+    end
+    if self.floorMenu then
+        self.floorMenu:Hide()
+    end
+    if ns.modules.SettingsPanel then
+        ns.modules.SettingsPanel:Hide()
+    end
+    self.feedbackDialog:Show()
+    self.feedbackDialog.editBox:SetText(ns.L.FEEDBACK_URL)
+    self.feedbackDialog.editBox:SetFocus()
+    self.feedbackDialog.editBox:HighlightText()
+end
+
+function MainWindow:RefreshContentTypeButtons()
+    for contentType, button in pairs(self.contentTypeButtons or {}) do
+        SetButtonHighlight(button, contentType == self.selectedContentType)
+        Compat.SetShown(button, #GetAvailableInstanceKeys(contentType) > 0)
+    end
+end
+
+function MainWindow:RefreshInstanceMenu()
+    local menu = self.instanceMenu
+    if not menu then
+        return
+    end
+    local order = self.instanceOrder or GetAvailableInstanceKeys(self.selectedContentType)
+    local visibleCount = math.min(#order, MAX_INSTANCE_MENU_BUTTONS)
+    local maxOffset = math.max(0, #order - MAX_INSTANCE_MENU_BUTTONS)
+    self.instanceMenuOffset = math.max(0,
+        math.min(self.instanceMenuOffset or 0, maxOffset))
+    menu:SetHeight(37 + (visibleCount * 23))
+    local title = self.selectedContentType == "raid"
+        and ns.L.SELECT_RAID or ns.L.SELECT_DUNGEON
+    if #order > MAX_INSTANCE_MENU_BUTTONS then
+        local firstVisible = self.instanceMenuOffset + 1
+        local lastVisible = math.min(#order,
+            self.instanceMenuOffset + MAX_INSTANCE_MENU_BUTTONS)
+        title = string.format("%s  %d–%d / %d", title,
+            firstVisible, lastVisible, #order)
+    end
+    menu.title:SetText(title)
+    if #order > MAX_INSTANCE_MENU_BUTTONS then
+        SetScrollbarRange(menu.scrollbar, maxOffset, self.instanceMenuOffset)
+        menu.scrollbar:GetThumbTexture():SetHeight(math.max(28,
+            (visibleCount / #order) * (visibleCount * 23)))
+        menu.scrollbar:Show()
+    else
+        SetScrollbarRange(menu.scrollbar, 0, 0)
+        menu.scrollbar:Hide()
+    end
+    for index, button in ipairs(menu.buttons) do
+        local instanceKey = order[self.instanceMenuOffset + index]
+        local instance = instanceKey and ns.Data.instances[instanceKey]
+        if instance then
+            button.instanceKey = instanceKey
+            button.label:SetText(instance.name or instanceKey)
+            if instance.levelMin and instance.levelMax then
+                button.range:SetText(string.format("%d–%d", instance.levelMin, instance.levelMax))
+            else
+                button.range:SetText(instance.levelMax or instance.levelMin or "")
+            end
+            local expansionColor = EXPANSION_COLORS[instance.contentExpansion]
+            if expansionColor then
+                button.range:SetTextColor(expansionColor[1], expansionColor[2], expansionColor[3])
+            else
+                button.range:SetTextColor(0.55, 0.55, 0.55)
+            end
+            SetButtonHighlight(button, instanceKey == self.selectedInstanceKey)
+            button:Show()
+        else
+            button.instanceKey = nil
+            button:Hide()
+        end
+    end
+end
+
+function MainWindow:ScrollInstanceMenu(delta)
+    local order = self.instanceOrder or GetAvailableInstanceKeys(self.selectedContentType)
+    local maxOffset = math.max(0, #order - MAX_INSTANCE_MENU_BUTTONS)
+    local nextOffset = math.max(0,
+        math.min((self.instanceMenuOffset or 0) + delta, maxOffset))
+    if nextOffset ~= self.instanceMenuOffset then
+        self.instanceMenuOffset = nextOffset
+        self:RefreshInstanceMenu()
+    end
+end
+
+function MainWindow:ToggleInstanceMenu()
+    local menu = self.instanceMenu
+    if not menu then
+        return
+    end
+    if menu:IsShown() then
+        menu:Hide()
+        return
+    end
+    if self.floorMenu then
+        self.floorMenu:Hide()
+    end
+    if self.mapClusterMenu then
+        self.mapClusterMenu:Hide()
+    end
+    local order = self.instanceOrder or GetAvailableInstanceKeys(self.selectedContentType)
+    local selectedIndex = 1
+    for index, instanceKey in ipairs(order) do
+        if instanceKey == self.selectedInstanceKey then
+            selectedIndex = index
+            break
+        end
+    end
+    local maxOffset = math.max(0, #order - MAX_INSTANCE_MENU_BUTTONS)
+    self.instanceMenuOffset = math.max(0,
+        math.min(selectedIndex - math.ceil(MAX_INSTANCE_MENU_BUTTONS / 2), maxOffset))
+    self:RefreshInstanceMenu()
+    menu:Show()
+end
+
+function MainWindow:RefreshFloorMenu()
+    local menu = self.floorMenu
+    local floors = GetMapFloors(ns.Data.instances[self.selectedInstanceKey])
+    if not menu or not floors then
+        return
+    end
+    menu:SetHeight(14 + (math.min(#floors, MAX_FLOOR_MENU_BUTTONS) * 23))
+    for index, button in ipairs(menu.buttons) do
+        local floor = floors[index]
+        if floor then
+            button.floorIndex = floor.index
+            button.label:SetText(floor.name)
+            button.counter:SetText(string.format("%d / %d", index, #floors))
+            SetButtonHighlight(button, floor.index == self.selectedFloor)
+            button:Show()
+        else
+            button.floorIndex = nil
+            button:Hide()
+        end
+    end
+end
+
+function MainWindow:ToggleFloorMenu()
+    local menu = self.floorMenu
+    local floors = GetMapFloors(ns.Data.instances[self.selectedInstanceKey])
+    if not menu or not floors or #floors < 2 then
+        return
+    end
+    if menu:IsShown() then
+        menu:Hide()
+        return
+    end
+    if self.instanceMenu then
+        self.instanceMenu:Hide()
+    end
+    if self.mapClusterMenu then
+        self.mapClusterMenu:Hide()
+    end
+    self:RefreshFloorMenu()
+    menu:Show()
+end
+
+function MainWindow:RefreshSidebar()
+    local instance = ns.Data.instances[self.selectedInstanceKey]
+    local instanceLoot = instance and (ns.Data.loot[instance.key] or {})
+    if not instance then
+        return
+    end
+
+    local instanceName = instance.name or instance.key or ""
+    self.dungeonButton.label:SetText(instanceName)
+    self.dungeonButton.label:SetFont(STANDARD_TEXT_FONT,
+        #instanceName > 18 and 10 or 12, "")
+    local rangeParts = {}
+    if instance.contentType == "raid" and instance.levelMax then
+        table.insert(rangeParts, string.format(ns.L.RAID_LEVEL, instance.levelMax))
+    elseif instance.contentType ~= "raid" and instance.levelMin and instance.levelMax then
+        table.insert(rangeParts, string.format(ns.L.LEVEL_RANGE,
+            instance.levelMin, instance.levelMax))
+    end
+    -- Content phases are a Classic-progression concept; meaningless on a WotLK realm.
+    if instance.contentPhase
+        and ns.Constants.GetClientFlavor() ~= ns.Constants.CLIENT_WOTLK then
+        table.insert(rangeParts, string.format(ns.L.CONTENT_PHASE, instance.contentPhase))
+    end
+    self.dungeonButton.range:SetText(table.concat(rangeParts, "  •  "))
+    local entryKeys = GetInstanceEntryKeys(instance, instanceLoot, self.selectedDifficulty)
+    local maxOffset = math.max(0, #entryKeys - MAX_ENCOUNTER_BUTTONS)
+    self.sidebarOffset = math.max(0, math.min(self.sidebarOffset or 0, maxOffset))
+    local firstVisible = self.sidebarOffset + 1
+    local lastVisible = math.min(#entryKeys, self.sidebarOffset + MAX_ENCOUNTER_BUTTONS)
+    if #entryKeys > MAX_ENCOUNTER_BUTTONS then
+        self.encounterHeading:SetText(string.format("%s  %d–%d / %d",
+            ns.L.ENCOUNTERS, firstVisible, lastVisible, #entryKeys))
+        self.encounterUp:Show()
+        self.encounterDown:Show()
+    else
+        self.encounterHeading:SetText(ns.L.ENCOUNTERS)
+        self.encounterUp:Hide()
+        self.encounterDown:Hide()
+    end
+    self.bossButtons = {}
+    for index, button in ipairs(self.bossButtonRows) do
+        local encounterIndex = self.sidebarOffset + index
+        local bossKey = entryKeys[encounterIndex]
+        local boss = bossKey and instanceLoot[bossKey]
+        if boss then
+            button.bossKey = bossKey
+            button.label:SetText(boss.name or bossKey)
+            button.number:SetText(bossKey == TRASH_DROPS_KEY and "•" or encounterIndex)
+            button:Show()
+            self.bossButtons[bossKey] = button
+        else
+            button.bossKey = nil
+            button:Hide()
+        end
+    end
+end
+
+function MainWindow:ShowMapClusterMenu(pin)
+    local menu = self.mapClusterMenu
+    local instanceLoot = ns.Data.loot[self.selectedInstanceKey]
+    if not menu or not instanceLoot or not pin.bossKeys or #pin.bossKeys < 2 then
+        return
+    end
+    if menu:IsShown() and menu.pin == pin then
+        menu:Hide()
+        menu.pin = nil
+        return
+    end
+
+    menu.pin = pin
+    menu:ClearAllPoints()
+    menu:SetPoint("TOPLEFT", pin, "BOTTOMRIGHT", 5, 5)
+    menu:SetHeight(39 + (#pin.bossKeys * 22))
+    for index, button in ipairs(menu.buttons) do
+        local bossKey = pin.bossKeys[index]
+        local encounter = bossKey and instanceLoot[bossKey]
+        if encounter then
+            button.bossKey = bossKey
+            button.number:SetText(pin.encounterIndexes[index] .. ".")
+            button.label:SetText(encounter.name or bossKey)
+            button:Show()
+        else
+            button.bossKey = nil
+            button:Hide()
+        end
+    end
+    menu:Show()
+end
+
+function MainWindow:BuildMapClusters(instance, instanceLoot, floorIndex)
+    local points = {}
+    for encounterIndex, bossKey in ipairs(GetInstanceEntryKeys(instance, instanceLoot,
+        self.selectedDifficulty)) do
+        local boss = instanceLoot[bossKey]
+        if bossKey ~= TRASH_DROPS_KEY and boss
+            and boss.floor == floorIndex and boss.x and boss.y then
+            table.insert(points, {
+                x = boss.x,
+                y = boss.y,
+                bossKey = bossKey,
+                encounterIndex = encounterIndex,
+            })
+        end
+    end
+
+    local parents = {}
+    for index = 1, #points do
+        parents[index] = index
+    end
+    local function Find(index)
+        while parents[index] ~= index do
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        end
+        return index
+    end
+    local function Union(left, right)
+        local leftRoot = Find(left)
+        local rightRoot = Find(right)
+        if leftRoot ~= rightRoot then
+            parents[rightRoot] = leftRoot
+        end
+    end
+    local distanceSquared = MAP_CLUSTER_DISTANCE * MAP_CLUSTER_DISTANCE
+    for left = 1, #points do
+        for right = left + 1, #points do
+            local deltaX = (points[left].x - points[right].x) * MAP_WIDTH
+            local deltaY = (points[left].y - points[right].y) * MAP_HEIGHT
+            if (deltaX * deltaX) + (deltaY * deltaY) <= distanceSquared then
+                Union(left, right)
+            end
+        end
+    end
+
+    local clustersByRoot = {}
+    local clusters = {}
+    for index, point in ipairs(points) do
+        local root = Find(index)
+        local cluster = clustersByRoot[root]
+        if not cluster then
+            cluster = {
+                x = 0,
+                y = 0,
+                bossKeys = {},
+                encounterIndexes = {},
+            }
+            clustersByRoot[root] = cluster
+            table.insert(clusters, cluster)
+        end
+        cluster.x = cluster.x + point.x
+        cluster.y = cluster.y + point.y
+        table.insert(cluster.bossKeys, point.bossKey)
+        table.insert(cluster.encounterIndexes, point.encounterIndex)
+    end
+    for _, cluster in ipairs(clusters) do
+        cluster.x = cluster.x / #cluster.bossKeys
+        cluster.y = cluster.y / #cluster.bossKeys
+    end
+    return clusters
+end
+
+function MainWindow:RefreshMap()
+    local instance = ns.Data.instances[self.selectedInstanceKey]
+    local instanceLoot = instance and (ns.Data.loot[instance.key] or {})
+    if not instance then
+        return
+    end
+
+    self.mapHeading:SetText(ns.L.MAP .. "  /  " .. (instance.name or instance.key or ""))
+    local mapData = instance.map
+    local floors = GetMapFloors(instance)
+    if not floors then
+        self.floorButton:Hide()
+        self.floorMenu:Hide()
+        if self.mapClusterMenu then
+            self.mapClusterMenu:Hide()
+            self.mapClusterMenu.pin = nil
+        end
+        for _, tile in ipairs(self.mapTiles) do
+            tile:Hide()
+        end
+        for _, pin in ipairs(self.mapPinRows) do
+            pin.bossKeys = nil
+            pin.encounterIndexes = nil
+            pin.isCluster = nil
+            pin.ring:Hide()
+            pin:Hide()
+        end
+        self.mapPins = {}
+        self.mapEmptyText:SetText(ns.L.MAP_NOT_AVAILABLE)
+        self.mapEmptyText:Show()
+        return
+    end
+    self.mapEmptyText:Hide()
+    local floorIndex = self.selectedFloor or 1
+    local floorData, floorPosition
+    for position, floor in ipairs(floors) do
+        if floor.index == floorIndex then
+            floorData, floorPosition = floor, position
+            break
+        end
+    end
+    if not floorData then
+        floorPosition = floors[floorIndex] and floorIndex or 1
+        floorData = floors[floorPosition]
+    end
+    self.selectedFloor = floorData.index or floorPosition
+    if #floors > 1 then
+        self.floorButton.label:SetText(floorData.name)
+        self.floorButton.counter:SetText(string.format("%d / %d",
+            floorPosition, #floors))
+        self.floorButton:Show()
+        self:RefreshFloorMenu()
+    else
+        self.floorButton:Hide()
+        self.floorMenu:Hide()
+    end
+    local tileCount = (mapData.columns or 4) * (mapData.rows or 3)
+    local anyTileLoaded = false
+    for tileIndex, tile in ipairs(self.mapTiles) do
+        if tileIndex <= tileCount then
+            local folder = mapData.textureFolder
+            local fileName
+            local tileFilePattern = floorData.tileFilePattern
+                or mapData.tileFilePattern
+            if tileFilePattern == "tileIndexOnly" then
+                fileName = folder .. tileIndex
+            else
+                fileName = folder .. (floorData.textureIndex or self.selectedFloor) .. "_" .. tileIndex
+            end
+            if Compat.SetTextureFile(tile, "Interface\\WorldMap\\" .. folder .. "\\" .. fileName) then
+                anyTileLoaded = true
+            end
+            tile:Show()
+        else
+            tile:Hide()
+        end
+    end
+    if not anyTileLoaded then
+        -- The map art is missing from this client (on 3.3.5a most Classic/TBC dungeon
+        -- maps come from a separate map patch): say so instead of showing a black box.
+        for _, tile in ipairs(self.mapTiles) do
+            tile:Hide()
+        end
+        self.mapEmptyText:SetText(ns.L.MAP_ART_MISSING)
+        self.mapEmptyText:Show()
+    end
+
+    if self.mapClusterMenu then
+        self.mapClusterMenu:Hide()
+        self.mapClusterMenu.pin = nil
+    end
+
+    local coordinateGroupOrder = self:BuildMapClusters(instance,
+        instanceLoot, self.selectedFloor)
+
+    self.mapPins = {}
+    local pinSlot = 1
+    for _, group in ipairs(coordinateGroupOrder) do
+        if pinSlot <= #self.mapPinRows then
+            local markerX = math.max(12,
+                math.min(MAP_WIDTH - 42, group.x * MAP_WIDTH))
+            local markerY = math.max(12,
+                math.min(MAP_HEIGHT - 12, group.y * MAP_HEIGHT))
+            local pin = self.mapPinRows[pinSlot]
+            pin:ClearAllPoints()
+            pin:SetPoint("CENTER", self.mapCanvas, "TOPLEFT",
+                markerX, -markerY)
+            pin.bossKeys = group.bossKeys
+            pin.encounterIndexes = group.encounterIndexes
+            pin.isCluster = #group.bossKeys > 1
+            if #group.bossKeys > 1 then
+                pin.number:SetText("")
+                ShowMapPinRing(pin, 0.82)
+            else
+                pin.number:SetText(group.encounterIndexes[1])
+                pin.ring:Hide()
+            end
+            pin.isSelected = false
+            pin:Show()
+            for _, bossKey in ipairs(group.bossKeys) do
+                self.mapPins[bossKey] = pin
+            end
+            pinSlot = pinSlot + 1
+        end
+    end
+    for index = pinSlot, #self.mapPinRows do
+        local pin = self.mapPinRows[index]
+        pin.bossKeys = nil
+        pin.encounterIndexes = nil
+        pin.isCluster = nil
+        pin.ring:Hide()
+        pin:Hide()
+    end
+end
+
+function MainWindow:SelectContentType(contentType)
+    if contentType ~= "dungeon" and contentType ~= "raid" then
+        return
+    end
+    local order = GetAvailableInstanceKeys(contentType)
+    if #order == 0 then
+        return
+    end
+    if self.instanceMenu then
+        self.instanceMenu:Hide()
+    end
+    if self.selectedContentType == contentType then
+        return
+    end
+    self.selectedContentType = contentType
+    self.instanceOrder = order
+    self:RefreshContentTypeButtons()
+    local selected = self.selectedInstances and self.selectedInstances[contentType]
+    local selectedData = selected and ns.Data.instances[selected]
+    if not ns.Constants.SupportsInstanceFlavor(selectedData)
+        or (selectedData.contentType or "dungeon") ~= contentType then
+        selected = nil
+    end
+    self:SelectInstance(selected or order[1])
+end
+
+function MainWindow:SelectInstance(instanceKey)
+    local instance = instanceKey and ns.Data.instances[instanceKey]
+    local flavor = ns.Constants.GetClientFlavor()
+    if not ns.Constants.SupportsInstanceFlavor(instance, flavor) then
+        return
+    end
+
+    if self.instanceMenu then
+        self.instanceMenu:Hide()
+    end
+    if self.floorMenu then
+        self.floorMenu:Hide()
+    end
+
+    self.selectedInstanceKey = instanceKey
+    self.selectedContentType = instance.contentType or "dungeon"
+    self.selectedInstances = self.selectedInstances or {}
+    self.selectedInstances[self.selectedContentType] = instanceKey
+    self.selectedDifficulties = self.selectedDifficulties or {}
+    local rememberedDifficulty = self.selectedDifficulties[instanceKey]
+    if not IsDifficultyAvailable(instance, rememberedDifficulty) then
+        rememberedDifficulty = GetAvailableDifficulties(instance)[1]
+    end
+    self.selectedDifficulty = rememberedDifficulty
+    self.selectedDifficulties[instanceKey] = rememberedDifficulty
+    local database = ns.modules.Database.data
+    if database then
+        database.settings.browser = database.settings.browser or {}
+        database.settings.browser.selectedContentType = self.selectedContentType
+        database.settings.browser.selectedInstances = self.selectedInstances
+        database.settings.browser.selectedDifficulties = self.selectedDifficulties
+    end
+    self.instanceOrder = GetAvailableInstanceKeys(self.selectedContentType)
+    self:RefreshContentTypeButtons()
+    self.sidebarOffset = 0
+    local floors = GetMapFloors(instance)
+    self.selectedFloor = floors and floors[1].index or nil
+    if self.feedbackLink and instance.verificationStatus then
+        self.feedbackLink.label:SetText(instance.verificationStatus == "vanillaBaseline"
+            and ns.L.FOREVER_BASELINE or ns.L.FOREVER_ANNOUNCED)
+    end
+    self:RefreshSidebar()
+    self:RefreshMap()
+    self:RefreshDifficultyButtons()
+    local firstBoss = GetInstanceEntryKeys(instance, nil, self.selectedDifficulty)[1]
+    if firstBoss then
+        self:SelectBoss(firstBoss)
+    else
+        self.selectedBossKey = nil
+        self.lootOffset = 0
+        self:RefreshLoot()
+    end
+end
+
+function MainWindow:RefreshDifficultyButtons()
+    local instance = ns.Data.instances[self.selectedInstanceKey]
+    local available = instance and GetAvailableDifficulties(instance) or {}
+    -- A lone "normal" needs no selector (Classic dungeons, Classic/TBC raids).
+    local showButtons = #available > 1
+        or (available[1] ~= nil and available[1] ~= "normal")
+    local buttons = {}
+    local blockWidth = 0
+    for _, button in pairs(self.difficultyButtons or {}) do
+        button:Hide()
+    end
+    for _, difficulty in ipairs(available) do
+        local button = showButtons and self.difficultyButtons
+            and self.difficultyButtons[difficulty]
+        if button then
+            if #buttons > 0 then
+                blockWidth = blockWidth + DIFFICULTY_BUTTON_GAP
+            end
+            blockWidth = blockWidth + button:GetWidth()
+            table.insert(buttons, button)
+        end
+    end
+
+    local fullMetaWidth = LOOT_PANEL_WIDTH - (LOOT_HEADER_INSET * 2)
+    local inlineMetaWidth = LOOT_PANEL_WIDTH - LOOT_HEADER_INSET - DIFFICULTY_BUTTON_RIGHT
+        - blockWidth - DIFFICULTY_META_GAP
+    local ownRow = #buttons > 0 and inlineMetaWidth < DIFFICULTY_META_MIN_WIDTH
+
+    -- Right-aligned in the header: lay out from the last key leftwards.
+    local previous
+    for index = #buttons, 1, -1 do
+        local button = buttons[index]
+        button:ClearAllPoints()
+        if previous then
+            button:SetPoint("RIGHT", previous, "LEFT", -DIFFICULTY_BUTTON_GAP, 0)
+        else
+            button:SetPoint("TOPRIGHT", -DIFFICULTY_BUTTON_RIGHT,
+                ownRow and -DIFFICULTY_ROW_TOP or -DIFFICULTY_BUTTON_TOP)
+        end
+        SetButtonHighlight(button, button.difficulty == self.selectedDifficulty)
+        button:Show()
+        previous = button
+    end
+
+    if self.bossMeta then
+        if ownRow then
+            -- The selector takes the meta's second line.
+            self.bossMeta:SetSize(fullMetaWidth, BOSS_META_LINE_HEIGHT)
+            self.bossMeta:SetWordWrap(false)
+        else
+            self.bossMeta:SetSize(#buttons > 0 and inlineMetaWidth or fullMetaWidth,
+                BOSS_META_LINE_HEIGHT * 2)
+            self.bossMeta:SetWordWrap(true)
+        end
+    end
+    if self.lootDivider then
+        self:SetLootListShift(ownRow and DIFFICULTY_ROW_SHIFT or 0)
+    end
+end
+
+function MainWindow:SelectDifficulty(difficulty)
+    local instance = ns.Data.instances[self.selectedInstanceKey]
+    if not instance or not ns.Constants.IsValidDifficulty(difficulty)
+        or not IsDifficultyAvailable(instance, difficulty) then
+        return
+    end
+    if self.selectedDifficulty == difficulty then
+        return
+    end
+    self.selectedDifficulty = difficulty
+    self.selectedDifficulties = self.selectedDifficulties or {}
+    self.selectedDifficulties[instance.key or self.selectedInstanceKey] = difficulty
+    local database = ns.modules.Database.data
+    if database then
+        database.settings.browser.selectedDifficulties = self.selectedDifficulties
+    end
+    self.sidebarOffset = 0
+    self.lootOffset = 0
+    self:RefreshDifficultyButtons()
+    self:RefreshSidebar()
+    self:RefreshMap()
+    local entryKeys = GetInstanceEntryKeys(instance, nil, difficulty)
+    local selectedBoss = self.selectedBossKey
+    local instanceLoot = ns.Data.loot[instance.key]
+    local boss = selectedBoss and instanceLoot and instanceLoot[selectedBoss]
+    if not SupportsClientFlavor(boss) or not SupportsDifficulty(boss, difficulty) then
+        selectedBoss = entryKeys[1]
+    end
+    if selectedBoss then
+        self:SelectBoss(selectedBoss, true)
+    else
+        self.selectedBossKey = nil
+        self:RefreshLoot()
+    end
+end
+
+-- GetInstanceInfo difficulty -> difficulty key, following the 3.3.5a minimap
+-- difficulty flag (ICC/RS switch heroic in place via playerDifficulty/isDynamic).
+local RAID_DIFFICULTY_KEYS = { "raid10", "raid25", "raid10h", "raid25h" }
+
+local function GetCurrentDifficultyKey(instanceType, difficultyIndex, playerDifficulty, isDynamic)
+    difficultyIndex = tonumber(difficultyIndex) or 1
+    if instanceType == "party" then
+        return difficultyIndex == 2 and "heroic" or "normal"
+    end
+    if isDynamic and playerDifficulty == 1 and difficultyIndex <= 2 then
+        difficultyIndex = difficultyIndex + 2
+    end
+    return RAID_DIFFICULTY_KEYS[difficultyIndex]
+end
+
+local function InstanceMatches(instance, instanceID, instanceName)
+    if type(instance) ~= "table" then
+        return false
+    end
+    if instanceID then
+        return instance.instanceID == instanceID
+    end
+    if not instanceName or instanceName == "" then
+        return false
+    end
+    if instance.name == instanceName then
+        return true
+    end
+    for _, mapName in ipairs(instance.mapNames or {}) do
+        if mapName == instanceName then
+            return true
+        end
+    end
+    return false
+end
+
+function MainWindow:GetCurrentInstanceKey()
+    if type(GetInstanceInfo) ~= "function" then
+        return nil
+    end
+    -- 3.3.5a returns seven values (no instance ID), so it is matched by the map name.
+    local instanceName, instanceType, difficultyIndex, _, _, playerDifficulty,
+        isDynamic, infoInstanceID = GetInstanceInfo()
+    if instanceType ~= "party" and instanceType ~= "raid" then
+        return nil
+    end
+    local instanceID
+    if type(UnitPosition) == "function" then
+        local _, _, _, positionInstanceID = UnitPosition("player")
+        if positionInstanceID and positionInstanceID ~= 0 then
+            instanceID = positionInstanceID
+        end
+    end
+    instanceID = instanceID or infoInstanceID
+    if instanceID == 0 then
+        instanceID = nil
+    end
+
+    local flavor = ns.Constants.GetClientFlavor()
+    local difficulty
+    if flavor == ns.Constants.CLIENT_WOTLK then
+        difficulty = GetCurrentDifficultyKey(instanceType, difficultyIndex,
+            playerDifficulty, isDynamic)
+    end
+
+    -- Several instances can share one map (Lower/Upper Blackrock Spire): prefer the
+    -- selected or remembered one, then the first match in menu order.
+    local selected = self.selectedInstanceKey and ns.Data.instances[self.selectedInstanceKey]
+    if InstanceMatches(selected, instanceID, instanceName)
+        and ns.Constants.SupportsInstanceFlavor(selected, flavor) then
+        return self.selectedInstanceKey, difficulty
+    end
+
+    for _, contentType in ipairs({ "dungeon", "raid" }) do
+        local remembered = self.selectedInstances and self.selectedInstances[contentType]
+        local rememberedInstance = remembered and ns.Data.instances[remembered]
+        if InstanceMatches(rememberedInstance, instanceID, instanceName)
+            and ns.Constants.SupportsInstanceFlavor(rememberedInstance, flavor) then
+            return remembered, difficulty
+        end
+    end
+
+    local contentTypes = instanceType == "raid" and { "raid", "dungeon" }
+        or { "dungeon", "raid" }
+    for _, contentType in ipairs(contentTypes) do
+        for _, instanceKey in ipairs(GetAvailableInstanceKeys(contentType)) do
+            if InstanceMatches(ns.Data.instances[instanceKey], instanceID, instanceName) then
+                return instanceKey, difficulty
+            end
+        end
+    end
+    return nil
+end
+
+function MainWindow:SelectCurrentInstance()
+    local instanceKey, difficulty = self:GetCurrentInstanceKey()
+    if not instanceKey then
+        return false
+    end
+    self:SelectInstance(instanceKey)
+    if difficulty then
+        -- Ignored when the instance does not list that difficulty.
+        self:SelectDifficulty(difficulty)
+    end
+    return true
+end
+
+function MainWindow:ScrollEncounterList(delta)
+    local instance = ns.Data.instances[self.selectedInstanceKey]
+    if not instance then
+        return
+    end
+    local entryKeys = GetInstanceEntryKeys(instance, nil, self.selectedDifficulty)
+    if #entryKeys <= MAX_ENCOUNTER_BUTTONS then
+        return
+    end
+    local maxOffset = #entryKeys - MAX_ENCOUNTER_BUTTONS
+    local nextOffset = math.max(0, math.min((self.sidebarOffset or 0) + delta, maxOffset))
+    if nextOffset ~= self.sidebarOffset then
+        self.sidebarOffset = nextOffset
+        self:RefreshSidebar()
+        if self.selectedBossKey and self.bossButtons[self.selectedBossKey] then
+            SetButtonHighlight(self.bossButtons[self.selectedBossKey], true)
+        end
+    end
+end
+
+function MainWindow:SelectFloor(floorIndex)
+    local floors = GetMapFloors(ns.Data.instances[self.selectedInstanceKey])
+    if not floors or #floors < 2 then
+        return
+    end
+    local selectedFloor
+    for _, floor in ipairs(floors) do
+        if floor.index == floorIndex then
+            selectedFloor = floor.index
+            break
+        end
+    end
+    if not selectedFloor then
+        return
+    end
+    if self.floorMenu then
+        self.floorMenu:Hide()
+    end
+    self.selectedFloor = selectedFloor
+    self:RefreshMap()
+    if self.selectedBossKey then
+        self:SelectBoss(self.selectedBossKey, true)
+    end
+end
+
+function MainWindow:SelectBoss(bossKey, keepFloor)
+    local instanceKey = self.selectedInstanceKey or "wailing_caverns"
+    local boss = ns.Data.loot[instanceKey] and ns.Data.loot[instanceKey][bossKey]
+    local flavor = ns.Constants.GetClientFlavor()
+    if not SupportsClientFlavor(boss, flavor)
+        or not SupportsDifficulty(boss, self.selectedDifficulty) then
+        return
+    end
+    if self.mapClusterMenu then
+        self.mapClusterMenu:Hide()
+        self.mapClusterMenu.pin = nil
+    end
+    if boss.kind ~= "trashDrops" and not keepFloor
+        and boss.floor and boss.floor ~= self.selectedFloor then
+        self.selectedFloor = boss.floor
+        self:RefreshMap()
+    end
+    if self.selectedBossKey ~= bossKey then
+        self.lootOffset = 0
+    end
+    self.selectedBossKey = bossKey
+    local instance = ns.Data.instances[instanceKey]
+    for encounterIndex, key in ipairs(GetInstanceEntryKeys(instance, nil,
+        self.selectedDifficulty)) do
+        if key == bossKey then
+            local offset = self.sidebarOffset or 0
+            if encounterIndex <= offset then
+                self.sidebarOffset = encounterIndex - 1
+                self:RefreshSidebar()
+            elseif encounterIndex > offset + MAX_ENCOUNTER_BUTTONS then
+                self.sidebarOffset = encounterIndex - MAX_ENCOUNTER_BUTTONS
+                self:RefreshSidebar()
+            end
+            break
+        end
+    end
+    SetTruncatedText(self.bossTitle, boss.name or bossKey)
+    local kind = boss.kind == "rare" and ns.L.RARE or (boss.kind == "event" and ns.L.EVENT or "Boss")
+    local metaParts = {}
+    if boss.kind == "trashDrops" then
+        table.insert(metaParts, ns.L.TRASH_DROPS_META)
+    else
+        table.insert(metaParts, kind)
+        local objectID = tonumber(boss.objectID)
+        if objectID then
+            table.insert(metaParts, string.format("Object %d", objectID))
+        else
+            local npcID = tonumber(boss.npcID)
+            local difficultyNPCs = boss.npcIDsByDifficulty
+                and boss.npcIDsByDifficulty[self.selectedDifficulty]
+            if type(difficultyNPCs) == "table" and tonumber(difficultyNPCs[1]) then
+                npcID = tonumber(difficultyNPCs[1])
+            end
+            -- Entries without an NPC or object ID simply omit that part.
+            if npcID then
+                table.insert(metaParts, string.format("NPC %d", npcID))
+            end
+        end
+    end
+    local meta = table.concat(metaParts, "  •  ")
+    if boss.locationScope == "preInstance" then
+        meta = meta .. "  •  " .. ns.L.PRE_INSTANCE
+    end
+    local factionAvailability = ns.Constants.GetFlavorValue(boss.factionAvailabilityByFlavor, flavor)
+        or boss.factionAvailability
+    if factionAvailability == "alliance" then
+        meta = meta .. "  •  " .. ns.L.ALLIANCE_ONLY
+    elseif factionAvailability == "horde" then
+        meta = meta .. "  •  " .. ns.L.HORDE_ONLY
+    end
+    if boss.availability == "scourgeInvasion"
+        or boss.availability == "scourgeInvasionOnly" then
+        meta = meta .. "  •  " .. ns.L.SCOURGE_INVASION
+    elseif boss.availability == "pyramidEvent" then
+        meta = meta .. "  •  " .. ns.L.PYRAMID_EVENT
+    elseif boss.availability == "pyramidEventOptionalHostile" then
+        meta = meta .. "  •  " .. ns.L.PYRAMID_EVENT .. " / " .. ns.L.OPTIONAL_HOSTILE
+    elseif boss.availability == "summonedWithMalletOfZulFarrak"
+        or boss.availability == "summonedQuestEvent"
+        or boss.availability == "summonedWithOmokksHeadAndRoughshodPike" then
+        meta = meta .. "  •  " .. ns.L.SUMMONED
+    elseif boss.availability == "tier0_5QuestEvent"
+        or boss.availability == "tier05Summon"
+        or boss.availability == "tier0_5BrazierSummon"
+        or boss.availability == "phase6LegendaryQuestSummon"
+        or boss.availability == "classQuestSummon"
+        or boss.availability == "warlockEpicMountSummon" then
+        meta = meta .. "  •  " .. ns.L.QUEST_SUMMON
+    elseif boss.availability == "ringOfLawRandomBoss" then
+        meta = meta .. "  •  " .. ns.L.RING_OF_LAW
+    elseif boss.availability == "darkCofferEvent" then
+        meta = meta .. "  •  " .. ns.L.DARK_COFFER
+    elseif boss.availability == "darkKeeperKeyEvent" then
+        meta = meta .. "  •  " .. ns.L.DARK_KEEPER
+    elseif boss.availability == "grimGuzzlerEvent" then
+        meta = meta .. "  •  " .. ns.L.GRIM_GUZZLER
+    elseif boss.availability == "summonersTombEvent" then
+        meta = meta .. "  •  " .. ns.L.SUMMONERS_TOMB
+    elseif boss.availability == "emperorEncounter" then
+        meta = meta .. "  •  " .. ns.L.EMPEROR_ENCOUNTER
+    elseif boss.availability == "postboxEvent" then
+        meta = meta .. "  •  " .. ns.L.POSTBOX_EVENT
+    elseif boss.availability == "blacksmithingPlansTrigger" then
+        meta = meta .. "  •  " .. ns.L.PLANS_TRIGGER
+    elseif boss.availability == "tobaccoBoxSummon" then
+        meta = meta .. "  •  " .. ns.L.TOBACCO_BOX
+    elseif boss.availability == "slaughterSquareGauntlet" then
+        meta = meta .. "  •  " .. ns.L.GAUNTLET_EVENT
+    elseif boss.availability == "blackrockStadiumEvent" then
+        meta = meta .. "  •  " .. ns.L.STADIUM_EVENT
+    elseif boss.availability == "emberseerRuneEvent" then
+        meta = meta .. "  •  " .. ns.L.RUNE_EVENT
+    elseif boss.availability == "rookeryEggEvent" then
+        meta = meta .. "  •  " .. ns.L.ROOKERY_EVENT
+    elseif boss.availability == "orbOfDominationEggEvent" then
+        meta = meta .. "  •  " .. ns.L.ORB_EVENT
+    elseif boss.availability == "lordVictorNefariusEvent" then
+        meta = meta .. "  •  " .. ns.L.NEFARIUS_EVENT
+    elseif boss.availability == "majordomoSummon" then
+        meta = meta .. "  •  " .. ns.L.SUMMONED
+    elseif boss.availability == "runeExtinguishingEvent" then
+        meta = meta .. "  •  " .. ns.L.RUNE_EVENT
+    elseif boss.availability == "optionalEncounter" then
+        meta = meta .. "  •  " .. ns.L.OPTIONAL_ENCOUNTER
+    elseif boss.availability == "eightWaveEncounter" then
+        meta = meta .. "  •  " .. ns.L.WAVE_EVENT
+    elseif boss.availability == "edgeOfMadnessRotation" then
+        meta = meta .. "  •  " .. ns.L.ROTATING_ENCOUNTER
+    elseif boss.availability == "gongSummon"
+        or boss.availability == "natPaglesMuddyChurningLureSummon" then
+        meta = meta .. "  •  " .. ns.L.SUMMONED
+    elseif boss.availability == "optionalSpeakerEvent" then
+        meta = meta .. "  •  " .. ns.L.SPEAKER_EVENT
+    elseif boss.availability == "sharedTwinEncounter" then
+        meta = meta .. "  •  " .. ns.L.SHARED_ENCOUNTER
+    elseif boss.availability == "eruptionDanceEncounter" then
+        meta = meta .. "  •  " .. ns.L.ERUPTION_DANCE
+    elseif boss.availability == "deathknightUnderstudyControlEvent" then
+        meta = meta .. "  •  " .. ns.L.CONTROL_EVENT
+    elseif boss.availability == "feugenStalaggPolarityEvent" then
+        meta = meta .. "  •  " .. ns.L.POLARITY_EVENT
+    elseif boss.availability == "livingAndDeadSideWaveEvent" then
+        meta = meta .. "  •  " .. ns.L.WAVE_EVENT
+    elseif boss.availability == "multiPhaseFinalEncounter" then
+        meta = meta .. "  •  " .. ns.L.MULTI_PHASE
+    elseif boss.availability == "sharedFourHorsemenChest" then
+        meta = meta .. "  •  " .. ns.L.SHARED_CHEST
+    elseif boss.availability == "holidayEvent" then
+        meta = meta .. "  •  " .. ns.L.HOLIDAY_EVENT
+    end
+    self.bossMeta:SetText(meta)
+
+    for key, button in pairs(self.bossButtons) do
+        SetButtonHighlight(button, key == bossKey)
+    end
+    for _, pin in ipairs(self.mapPinRows) do
+        local containsSelectedBoss = false
+        for _, pinBossKey in ipairs(pin.bossKeys or {}) do
+            if pinBossKey == bossKey then
+                containsSelectedBoss = true
+                break
+            end
+        end
+        if containsSelectedBoss then
+            pin.isSelected = true
+            ShowMapPinRing(pin, 1)
+            pin.number:SetTextColor(1, 0.92, 0.55)
+        else
+            pin.isSelected = false
+            if pin.isCluster then
+                ShowMapPinRing(pin, 0.82)
+            else
+                pin.ring:Hide()
+            end
+            pin.number:SetTextColor(1, 0.82, 0.32)
+        end
+    end
+    self:RefreshLoot()
+end
+
+function MainWindow:ScrollLootList(delta)
+    local instanceLoot = ns.Data.loot[self.selectedInstanceKey]
+    local boss = self.selectedBossKey and instanceLoot and instanceLoot[self.selectedBossKey]
+    local items = GetVisibleLootItems(boss, self.selectedDifficulty)
+    if not boss or #items <= MAX_LOOT_ROWS then
+        return
+    end
+    local maxOffset = math.max(0, #items - MAX_LOOT_ROWS)
+    local nextOffset = math.max(0, math.min((self.lootOffset or 0) + delta, maxOffset))
+    if nextOffset ~= self.lootOffset then
+        self.lootOffset = nextOffset
+        self:RefreshLoot()
+    end
+end
+
+function MainWindow:RefreshLoot()
+    local instanceKey = self.selectedInstanceKey or "wailing_caverns"
+    local instanceLoot = ns.Data.loot[instanceKey]
+    local boss = self.selectedBossKey and instanceLoot and instanceLoot[self.selectedBossKey]
+    if not boss then
+        self.bossTitle:SetText(ns.L.ENCOUNTERS)
+        self.bossMeta:SetText("")
+        self.lootHeading:SetText(ns.L.LOOT)
+        self.dropChanceHeading:SetText("")
+        self.lootScrollbar:Hide()
+        self.emptyLootText:SetText(ns.L.DUNGEON_DETAILS_PENDING)
+        self.emptyLootText:Show()
+        for _, row in ipairs(self.lootRows) do
+            row.itemID = nil
+            row:Hide()
+        end
+        return
+    end
+    local flavor = ns.Constants.GetClientFlavor()
+    local items = GetVisibleLootItems(boss, self.selectedDifficulty)
+    local maxOffset = math.max(0, #items - MAX_LOOT_ROWS)
+    self.lootOffset = math.max(0, math.min(self.lootOffset or 0, maxOffset))
+    local firstVisible = self.lootOffset + 1
+    local lastVisible = math.min(#items, self.lootOffset + MAX_LOOT_ROWS)
+    if #items > MAX_LOOT_ROWS then
+        self.lootHeading:SetText(string.format("%s  %d–%d / %d",
+            ns.L.LOOT, firstVisible, lastVisible, #items))
+        SetScrollbarRange(self.lootScrollbar, maxOffset, self.lootOffset)
+        self.lootScrollbar:GetThumbTexture():SetHeight(math.max(28,
+            (MAX_LOOT_ROWS / #items) * (MAX_LOOT_ROWS * LOOT_ROW_STEP)))
+        self.lootScrollbar:Show()
+    else
+        self.lootHeading:SetText(ns.L.LOOT)
+        SetScrollbarRange(self.lootScrollbar, 0, 0)
+        self.lootScrollbar:Hide()
+    end
+    local database = ns.modules.Database.data
+    local browserSettings = database and database.settings.browser or {}
+    local showDropEstimates = browserSettings.showDropEstimates ~= false
+    self.dropChanceHeading:SetText(showDropEstimates
+        and ns.L.DROP_CHANCE_HEADING or ns.L.TYPE_HEADING)
+    local lootStatus = boss.lootStatusByDifficulty
+        and boss.lootStatusByDifficulty[self.selectedDifficulty]
+        or ns.Constants.GetFlavorValue(boss.lootStatusByFlavor, flavor)
+        or boss.lootStatus
+    if lootStatus == "underReview" and boss.kind == "trashDrops" then
+        self.emptyLootText:SetText(ns.L.TRASH_LOOT_UNDER_REVIEW)
+    elseif lootStatus == "underReview" then
+        self.emptyLootText:SetText(ns.L.LOOT_UNDER_REVIEW)
+    elseif boss.kind == "trashDrops" then
+        self.emptyLootText:SetText(ns.L.NO_NOTABLE_TRASH_DROPS)
+    else
+        self.emptyLootText:SetText(ns.L.NO_NOTABLE_LOOT)
+    end
+    if #items == 0 then
+        self.emptyLootText:Show()
+    else
+        self.emptyLootText:Hide()
+    end
+    -- Only the rows on screen get server requests; drop any still queued for other rows.
+    Compat.CancelItemRequests()
+    for index, row in ipairs(self.lootRows) do
+        local entry = items[self.lootOffset + index]
+        if entry then
+            local itemID = entry.itemID
+            local name, link, quality, icon = GetItemDisplay(itemID)
+            row.itemID = itemID
+            row.itemLink = link
+            row.category = entry.category
+            row.questID = entry.questID
+            row.questIDs = entry.questIDs
+            row.factionAvailability = ns.Constants.GetFlavorValue(
+                entry.factionAvailabilityByFlavor, flavor) or entry.factionAvailability
+            row.turnInToken = entry.turnInToken
+            row.tributeAttempts = tonumber(entry.tributeAttempts)
+            row.hardMode = not row.tributeAttempts
+                and (entry.condition == "hardMode" or entry.hardMode == true)
+            row.dropChance = showDropEstimates
+                and ns.Constants.GetFlavorValue(entry.dropChances, flavor) or nil
+            row.dropChanceStatus = showDropEstimates and entry.dropChanceStatus or nil
+            row.isTrashDrop = boss.kind == "trashDrops"
+            row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            SetTruncatedText(row.name,
+                name or string.format(ns.L.LOADING_ITEM, itemID))
+            local color = quality and ITEM_QUALITY_COLORS[quality]
+            if color then
+                row.name:SetTextColor(color.r, color.g, color.b)
+            else
+                row.name:SetTextColor(0.70, 0.70, 0.70)
+            end
+            local factionLabel = row.factionAvailability == "alliance" and "Alliance"
+                or (row.factionAvailability == "horde" and "Horde" or nil)
+            local itemMeta = {}
+            if row.turnInToken then
+                table.insert(itemMeta, ns.L.TURN_IN_TOKEN)
+            end
+            if row.hardMode then
+                table.insert(itemMeta, ns.L.HARD_MODE)
+            end
+            if row.tributeAttempts then
+                table.insert(itemMeta, string.format(ns.L.TRIBUTE_ATTEMPTS,
+                    row.tributeAttempts))
+            end
+            if factionLabel then
+                table.insert(itemMeta, factionLabel)
+            end
+            row.meta:SetText(table.concat(itemMeta, "  •  "))
+            if row.category == "questObjective" then
+                row.chance:SetText(ns.L.QUEST_ITEM)
+                row.chance:SetTextColor(1, 0.82, 0.38)
+            elseif row.category == "startsQuest" then
+                row.chance:SetText(ns.L.STARTS_QUEST)
+                row.chance:SetTextColor(1, 0.82, 0.38)
+            elseif row.dropChance then
+                row.chance:SetText(string.format(ns.L.DROP_CHANCE,
+                    FormatDropChance(row.dropChance)))
+                row.chance:SetTextColor(0.92, 0.72, 0.30)
+            elseif row.isTrashDrop and row.dropChanceStatus then
+                row.chance:SetText(ns.L.DROP_VARIES)
+                row.chance:SetTextColor(0.62, 0.62, 0.62)
+            elseif row.dropChanceStatus then
+                row.chance:SetText(ns.L.DROP_PENDING)
+                row.chance:SetTextColor(0.62, 0.62, 0.62)
+            else
+                row.chance:SetText("—")
+            end
+            row:Show()
+        else
+            row.itemID = nil
+            row.itemLink = nil
+            row.category = nil
+            row.questID = nil
+            row.questIDs = nil
+            row.factionAvailability = nil
+            row.turnInToken = nil
+            row.tributeAttempts = nil
+            row.hardMode = nil
+            row.dropChance = nil
+            row.dropChanceStatus = nil
+            row.isTrashDrop = nil
+            row:Hide()
+        end
+    end
+    -- An item that arrived while its row was hovered: rebuild the placeholder tooltip.
+    if GameTooltip:IsShown() then
+        for _, row in ipairs(self.lootRows) do
+            if row.itemID and row:IsShown() and GameTooltip:IsOwned(row) then
+                local onEnter = row:GetScript("OnEnter")
+                if onEnter then
+                    onEnter(row)
+                end
+                break
+            end
+        end
+    end
+end
+
+-- resolvedItems: set of item IDs that just reached the item cache (from Compat).
+function MainWindow:OnItemDataLoaded(resolvedItems)
+    if not self.frame or not self.frame:IsShown() or type(resolvedItems) ~= "table" then
+        return
+    end
+    for _, row in ipairs(self.lootRows or {}) do
+        if row.itemID and resolvedItems[row.itemID] and row:IsShown() then
+            self:RefreshLoot()
+            return
+        end
+    end
+end
+
+function MainWindow:SavePosition()
+    local database = ns.modules.Database.data
+    if not database or not self.frame then
+        return
+    end
+    local point, _, relativePoint, x, y = self.frame:GetPoint(1)
+    database.settings.window = {
+        point = point,
+        relativePoint = relativePoint,
+        x = x,
+        y = y,
+        scale = self.windowScale or 1,
+    }
+end
+
+function MainWindow:RestorePosition()
+    local database = ns.modules.Database.data
+    local position = database and database.settings.window
+    self:SetWindowScale(position and position.scale or 1)
+    self.frame:ClearAllPoints()
+    if position and position.point then
+        self.frame:SetPoint(position.point, UIParent, position.relativePoint or position.point, position.x or 0, position.y or 0)
+    else
+        self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+    end
+end
+
+function MainWindow:ResetPosition()
+    local database = ns.modules.Database.data
+    if database then
+        database.settings.window = {}
+    end
+    if self.frame then
+        self:SetWindowScale(1)
+        self.frame:ClearAllPoints()
+        self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+    end
+end
+
+function MainWindow:Toggle()
+    if not self:Create() then
+        return
+    end
+    if self.frame:IsShown() then
+        if self.instanceMenu then
+            self.instanceMenu:Hide()
+        end
+        if self.floorMenu then
+            self.floorMenu:Hide()
+        end
+        if self.feedbackDialog then
+            self.feedbackDialog.editBox:ClearFocus()
+            self.feedbackDialog:Hide()
+        end
+        if ns.modules.SettingsPanel then
+            ns.modules.SettingsPanel:Hide()
+        end
+        self.frame:Hide()
+    else
+        local database = ns.modules.Database.data
+        local browserSettings = database and database.settings.browser or {}
+        if browserSettings.autoSelectCurrentInstance ~= false then
+            local selected, selectError = pcall(self.SelectCurrentInstance, self)
+            if not selected then
+                geterrorhandler()(selectError)
+            end
+        end
+        -- OnShow redraws the loot list.
+        self.frame:Show()
+    end
+end
+
+function MainWindow:ShowOptions()
+    if not self:Create() then
+        return
+    end
+    if not self.frame:IsShown() then
+        self:Toggle()
+    end
+    local settingsPanel = ns.modules.SettingsPanel
+    if settingsPanel and settingsPanel.frame and not settingsPanel.frame:IsShown() then
+        settingsPanel:Toggle()
+    end
+end
+
+function MainWindow:IsImplemented()
+    return true
+end
