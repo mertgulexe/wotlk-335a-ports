@@ -42,3 +42,5 @@ atlaspoi.lua
 minimap.lua
 zonelevel.lua
 microdungeons.lua
+dungeonmapdata.lua
+dungeonmap.lua

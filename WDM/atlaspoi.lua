@@ -227,6 +227,8 @@ function AtlasPOI:ShowPOIs()
                                       y);
             worldMapAtlasPOI.name = text;
             worldMapAtlasPOI.description = desc;
+            -- 3.3.5a port: dungeon/raid entrances can open the dungeon map viewer (dungeonmap.lua)
+            worldMapAtlasPOI.instanceKind = (faction == "dungeon" or faction == "raid") and faction or nil;
             --worldMapAtlasPOI.mapLinkID = 0;
             worldMapAtlasPOI:Show();
         else
@@ -274,9 +276,23 @@ end
 -- the mouse through to WorldMapButton, so clicks run Blizzard's own zoom handler, and the hover label is set here,
 -- after Blizzard's WorldMapButton_OnUpdate (widget calls only).
 local hoveredPOI
+local hoveredMapKind, hoveredMapName, hoveredMapKey -- 3.3.5a port: the entrance a left-click opens, and on which map
+
+local function DungeonMapModule()
+    return WDM:GetModule("DungeonMap", true)
+end
+
+local function CurrentWorldMapKey()
+    return string.format("%s:%d:%d:%d", GetMapInfo() or "", GetCurrentMapContinent() or 0,
+        GetCurrentMapZone() or 0, GetCurrentMapDungeonLevel() or 0)
+end
+
 function AtlasPOI:WorldMapButton_OnUpdate()
     local poi
-    if not WorldMapFrame.poiHighlight and WorldMapButton:IsMouseOver() then
+    local dungeonMap = DungeonMapModule()
+    if dungeonMap and dungeonMap:IsShown() then
+        -- 3.3.5a port: the dungeon map viewer covers the icons
+    elseif not WorldMapFrame.poiHighlight and WorldMapButton:IsMouseOver() then
         for i = 1, NUM_WORLDMAP_ATLAS_POI do
             local p = _G["WorldMapFrameAtlasPOI" .. i]
             if p:IsShown() and p:IsMouseOver() then
@@ -292,16 +308,40 @@ function AtlasPOI:WorldMapButton_OnUpdate()
         end
     end
     hoveredPOI = poi
+    hoveredMapKind, hoveredMapName, hoveredMapKey = nil, nil, nil
     if poi then
         poi:LockHighlight()
         WorldMapFrameAreaLabel:SetText(poi.name)
-        WorldMapFrameAreaDescription:SetText(poi.description or "")
+        local description = poi.description or ""
+        if poi.instanceKind then
+            -- 3.3.5a port: entrances show only their name ("Dungeon"/"Raid" is the icon's colour). A left-click
+            -- shows the dungeon's map, when WorldMapButton gets the click: a player/party/raid dot or a quest
+            -- icon over the entrance takes it instead.
+            description = ""
+            if dungeonMap and dungeonMap:HasMap(poi.instanceKind, poi.name) and GetMouseFocus() == WorldMapButton then
+                hoveredMapKind, hoveredMapName, hoveredMapKey = poi.instanceKind, poi.name, CurrentWorldMapKey()
+            end
+        end
+        WorldMapFrameAreaDescription:SetText(description)
+    end
+end
+
+-- 3.3.5a port: a left-click on a dungeon/raid entrance opens its map in the dungeon map viewer. The icons
+-- let the mouse through, so this runs after Blizzard's own WorldMapButton click handler (a post-hook, no
+-- Blizzard map function is called). If that click changed the map, Blizzard's behaviour wins.
+function AtlasPOI:WorldMapButton_OnMouseUp(frame, button)
+    if button ~= "LeftButton" or not hoveredMapName then return end
+    if CurrentWorldMapKey() ~= hoveredMapKey then return end
+    local dungeonMap = DungeonMapModule()
+    if dungeonMap then
+        dungeonMap:Open(hoveredMapKind, hoveredMapName)
     end
 end
 
 function AtlasPOI:OnEnable()
     self:SecureHook("WorldMapFrame_Update")
     self:SecureHookScript(WorldMapButton, "OnUpdate", "WorldMapButton_OnUpdate") -- 3.3.5a taint fix: icon hover label
+    self:SecureHookScript(WorldMapButton, "OnMouseUp", "WorldMapButton_OnMouseUp") -- 3.3.5a port: dungeon maps
     self:AddTrackingOptions()
 end
 

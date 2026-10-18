@@ -303,13 +303,30 @@ function MBB_SlashHandler(cmd)
 		MBB_DB.Profiles = nil;
 		MBB_DB.ActiveProfile = nil;
 		MBB_Profile_EnsureStore();
+		-- 3.3.5a fix: EnsureStore puts a copy of the options in the new Default
+		-- profile. Use that table as the live one, or the next ADDON_LOADED (any
+		-- load-on-demand Blizzard window) brings the copy back and undoes changes.
+		MBB_Options = MBB_DB.Profiles[MBB_DB.ActiveProfile].options;
+		MBB_GlobalOptions = MBB_Options;
 		MBB_ResetButtonPosition()
 		if MBB_OptionsFrame then
 			MBB_RestoreOptionsFramePosition()
 		end
 
-		for i = 1, table.maxn(MBB_Exclude) do
-			MBB_AddButton(MBB_Exclude[i])
+		-- 3.3.5a fix: MBB_AddButton removes the name from MBB_Exclude, so walk a
+		-- copy (the old loop skipped every other name and then passed nil). Names
+		-- MBB never prepared (addon disabled, button moved off the minimap) are
+		-- only taken off the list; the next scan bags them if they come back.
+		local pending = {};
+		for _, name in ipairs(MBB_Exclude) do table.insert(pending, name); end
+		for _, name in ipairs(pending) do
+			local f = (type(name) == "string") and _G[name];
+			if( type(f) == "table" and f.oshow and f.GetPoint and not MBB_IsInArray(MBB_Buttons, name) ) then
+				MBB_AddButton(name); -- also takes it off MBB_Exclude
+			else
+				local idx = MBB_IsInArray(MBB_Exclude, name);
+				if( idx ) then table.remove(MBB_Exclude, idx); end
+			end
 		end
 
 		MBB_SetPositions()
@@ -443,20 +460,30 @@ function MBB_Profile_GetActiveDisplayName()
     return MBB_Profile_GetDisplayName(MBB_DB.ActiveProfile);
 end
 
+-- 3.3.5a fix: set once MBB_OnEvent has run, i.e. after the SavedVariables are
+-- loaded. Building the profile store before that hid a classic MBB's settings.
+local MBB_VarsReady = false;
+
 -- Quick profile selector used directly in the main settings window.
 -- The legacy UIDropDownMenu API is available across all WoW clients supported
 -- by MBB and keeps the selector consistent with Blizzard UI controls.
 function MBB_ProfileDropdown_Refresh()
     if not MBB_OptionsFrame_ProfileDropDown then return; end
+    if not MBB_VarsReady then return; end -- 3.3.5a fix: see MBB_VarsReady
     MBB_Profile_EnsureStore();
 
     local displayName = MBB_Profile_GetDisplayName(MBB_DB.ActiveProfile);
     if UIDropDownMenu_SetText then
         UIDropDownMenu_SetText(MBB_OptionsFrame_ProfileDropDown, displayName);
     end
-    if UIDropDownMenu_SetSelectedValue then
-        UIDropDownMenu_SetSelectedValue(MBB_OptionsFrame_ProfileDropDown, MBB_DB.ActiveProfile);
-    end
+    -- 3.3.5a fix: UIDropDownMenu_SetSelectedValue also refreshes DropDownList1,
+    -- whichever menu has it open (tracking, unit menus), and this runs at every
+    -- combat start and end. MBB's own menu sets info.checked, so only the
+    -- dropdown's fields are needed (what SetSelectedValue sets).
+    local dd = MBB_OptionsFrame_ProfileDropDown;
+    dd.selectedName = nil;
+    dd.selectedID = nil;
+    dd.selectedValue = MBB_DB.ActiveProfile;
 
     local locked = MBB_IsInCombat();
     if locked then
@@ -468,6 +495,7 @@ end
 
 function MBB_ProfileDropdown_Initialize(self, level)
     if level and level ~= 1 then return; end
+    if not MBB_VarsReady then return; end -- 3.3.5a fix: see MBB_VarsReady
     MBB_Profile_EnsureStore();
     if not UIDropDownMenu_CreateInfo or not UIDropDownMenu_AddButton then return; end
 
@@ -685,7 +713,11 @@ function MBB_Profile_Duplicate(sourceName, newName)
     -- Keep the active profile fully in sync before copying it.
     if sourceName == MBB_DB.ActiveProfile then
         local source = MBB_DB.Profiles[sourceName];
-        source.options = MBB_Profile_CopyTable(MBB_Options or source.options or MBB_DefaultOptions);
+        -- 3.3.5a fix: keep the live table bound to the active profile. A copy
+        -- here left MBB_Options cut off from it, so later changes were lost.
+        if type(MBB_Options) == "table" then
+            source.options = MBB_Options;
+        end
         if MBB_ButtonOrder_GetStore then
             source.buttonOrder = MBB_Profile_CopyArray(MBB_ButtonOrder_GetStore());
         end
@@ -871,6 +903,9 @@ local function MBB_ButtonManager_SetManaged(name, managed)
     if not button then
         return;
     end
+    -- 3.3.5a fix: only frames MBB has prepared (an excluded button can have left
+    -- the minimap since); a bagged unprepared frame broke closing the bag.
+    if not button.oshow then return end
 
     MBB_ButtonOrder_EnsureName(name);
 
@@ -1113,7 +1148,7 @@ function MBB_ButtonManager_Refresh()
             row.nameText:SetTextColor(1, 1, 1);
             MBB_ButtonManager_SetNameBoxState(row, managed and "managed" or "minimap");
 
-            if not button then
+            if not button or not button.oshow then -- 3.3.5a fix: unprepared frames count as missing
                 row.statusText:SetText(MBB_MANAGER_MISSING or "Not loaded");
                 row.check:Disable();
                 row.up:Disable();
@@ -1331,6 +1366,8 @@ local function MBB_ProfileManager_EnsurePopups()
             hideOnEscape = true,
             preferredIndex = 3,
             OnHide = MBB_ProfileManager_PopupOnHide,
+            -- 3.3.5a fix: the focused edit box takes Esc; without this the pop-up stayed open
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide(); end,
             OnShow = function(self)
                 local editBox = self.editBox or _G[self:GetName() .. "EditBox"];
                 if editBox then
@@ -1383,6 +1420,7 @@ local function MBB_ProfileManager_EnsurePopups()
             hideOnEscape = true,
             preferredIndex = 3,
             OnHide = MBB_ProfileManager_PopupOnHide,
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide(); end, -- 3.3.5a fix: Esc closes it
             OnShow = function(self)
                 local editBox = self.editBox or _G[self:GetName() .. "EditBox"];
                 if editBox then
@@ -1416,6 +1454,7 @@ local function MBB_ProfileManager_EnsurePopups()
             hideOnEscape = true,
             preferredIndex = 3,
             OnHide = MBB_ProfileManager_PopupOnHide,
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide(); end, -- 3.3.5a fix: Esc closes it
             OnShow = function(self)
                 local editBox = self.editBox or _G[self:GetName() .. "EditBox"];
                 if editBox then
@@ -1790,6 +1829,7 @@ function MBB_OnEvent(self, event, ...)
 		activeProfile.options = MBB_Options;
 		MBB_DB.ButtonOrder = MBB_Profile_CopyArray(activeProfile.buttonOrder or {});
 	end
+	MBB_VarsReady = true; -- 3.3.5a fix: the profile dropdown may build the store now
 	MBB_SetButtonPosition();
 end
 
@@ -1818,12 +1858,15 @@ function MBB_PrepareButton(name)
 			buttonframe:RegisterForClicks("LeftButtonDown", "RightButtonDown", "MiddleButtonDown");
 		end
 		
-		buttonframe.isvisible = buttonframe:IsVisible();
-		
+		-- 3.3.5a fix: IsShown, not IsVisible: these store what the addon set. A
+		-- button whose container was already hidden (Atlas with its minimap
+		-- button off) never came back to the bag when the container was shown.
+		buttonframe.isvisible = buttonframe:IsShown();
+
 		if( buttonframe.hasParentFrame ) then
 			local parent = buttonframe:GetParent();
 			parent.MBBChild = buttonframe:GetName();
-			buttonframe.parentisvisible = parent:IsVisible();
+			buttonframe.parentisvisible = parent:IsShown();
 			parent.oshow = parent.Show;
 			parent.Show = function(...)
 				local self = select(1, ...);
@@ -1853,6 +1896,19 @@ function MBB_PrepareButton(name)
 				if( not MBB_IsInArray(MBB_Exclude, child:GetName()) ) then
 					MBB_SetPositions();
 				end
+			end
+			-- 3.3.5a fix: while the child is in the bag, the container is really
+			-- hidden whenever the bag is closed. Report the state its addon set:
+			-- Atlas's "Show Button on Minimap" uses IsVisible() to pick Show or
+			-- Hide, so the option could not be turned off. (Same addon frame whose
+			-- Show/Hide MBB replaces above; Blizzard frames are in MBB_Ignore.)
+			parent.oisvisible = parent.IsVisible;
+			parent.IsVisible = function(self)
+				local c = _G[self.MBBChild];
+				if( c and MBB_IsInArray(MBB_Buttons, c:GetName()) ) then
+					return c.parentisvisible and 1 or nil;
+				end
+				return self.oisvisible(self);
 			end
 		end
 		
@@ -1981,7 +2037,8 @@ end
 
 function MBB_AddButton(name)
 	local child = _G[name]
-	
+	if not child then return end -- 3.3.5a fix: stale exclude entries have no frame
+
 	child.opoint = {child:GetPoint()};
 	if( not child.opoint[1] ) then
 		child.opoint = {"TOP", Minimap, "BOTTOM", 0, 0};
@@ -2027,11 +2084,13 @@ function MBB_RestoreButton(name)
 	button.ClearAllPoints = button.oclearallpoints;
 	button.SetPoint = button.osetpoint;
 	MBB_Debug("EVENT Restoring Button");
+	-- 3.3.5a fix: show it only if its addon has it shown (TinyPad's button is
+	-- off by default and appeared on the minimap when taken out of the bag).
 	if( button.hasParentFrame ) then
 		local parent = button:GetParent();
-		parent.oshow(parent);
+		if( button.parentisvisible and parent.oshow ) then parent.oshow(parent); end
 	else
-		button.oshow(button);
+		if( button.isvisible and button.oshow ) then button.oshow(button); end
 	end
 	
 	table.insert(MBB_Exclude, name);
@@ -2191,10 +2250,11 @@ function MBB_HideButtons()
 						table.insert(MBB_DebugInfo[parent:GetName()], "No ohide");
 					end
 				end
-				buttonhideframe.ohide(buttonhideframe);
+				-- 3.3.5a fix: an unprepared frame has no ohide; the error stopped the bag from closing
+				if( buttonhideframe.ohide ) then buttonhideframe.ohide(buttonhideframe); end
 			end
 		else
-			buttonhideframe.ohide(buttonhideframe);
+			if( buttonhideframe.ohide ) then buttonhideframe.ohide(buttonhideframe); end -- 3.3.5a fix: as above
 		end
 	end
 	MBB_IsShown = 0;
@@ -2575,7 +2635,14 @@ function MBB_SetButtonPosition()
         MBB_MinimapButtonFrame:ClearAllPoints();
         MBB_MinimapButtonFrame:SetParent(Minimap);
         MBB_MinimapButtonFrame:SetMovable(false);
-        MBB_MinimapButtonFrame:SetPoint("TOPLEFT", Minimap, "TOPLEFT", MBB_Options.ButtonPos[1], MBB_Options.ButtonPos[2]);
+        -- 3.3.5a fix: ButtonPos is kept at 100% size (the default and older saved
+        -- positions are); anchor offsets are in the button's own scale, so convert
+        -- them around the button's centre. Otherwise a Button size other than 100%
+        -- put the button off the minimap ring.
+        local s = MBB_Options.ButtonScale or 1.0;
+        local half = MBB_MinimapButtonFrame:GetWidth() / 2;
+        MBB_MinimapButtonFrame:SetScale(s);
+        MBB_MinimapButtonFrame:SetPoint("TOPLEFT", Minimap, "TOPLEFT", (MBB_Options.ButtonPos[1] + half) / s - half, (MBB_Options.ButtonPos[2] - half) / s + half);
     else
         -- Detached: always keep it on-screen and default to center if anything looks wrong
         MBB_MinimapButtonFrame:ClearAllPoints();

@@ -25,6 +25,8 @@ local Tab2FrameBlock		= nil
 local Tab2EditDesc			= ""
 local Tab2EditFilter		= ""
 local Tab2EditActive		= false
+local Tab2EditIndex			= 0		-- 3.3.5a fix: the filter the editor was opened for (see filterKey)
+local Tab2EditKey			= nil
 local Tab2BlockFilter		= 0
 local Tab3Frame				= nil
 local columnCount			= 0
@@ -294,6 +296,16 @@ StaticPopupDialogs["GIL_EXPIRE"] = {
 	end
 }
 
+-- 3.3.5a fix: what the Remove popup and the editor were opened for.  An index alone is not enough
+-- (a removal shifts the filters below it), and filters the user made all have the ID "".
+local function filterKey (index)
+	if not index or GlobalIgnoreDB.filterList[index] == nil then
+		return nil
+	end
+
+	return (GlobalIgnoreDB.filterID[index] or "") .. "\001" .. (GlobalIgnoreDB.filterDesc[index] or "") .. "\001" .. GlobalIgnoreDB.filterList[index]
+end
+
 StaticPopupDialogs["GIL_FILTERRESET"] = {
 
 	preferredIndex = STATICPOPUPS_NUMDIALOGS or STATICPOPUP_NUMDIALOGS, -- 3.3.5a: STATICPOPUP_NUMDIALOGS
@@ -319,13 +331,15 @@ StaticPopupDialogs["GIL_FILTERREMOVE"] = {
 	whileDead      = 1,
 	button1        = L["BOX_10"],
 	button2        = L["BOX_5"],
-	OnAccept       = function(self)
-		if FilterScrollSelect <= 0 then
+	OnAccept       = function(self, data)
+		-- 3.3.5a fix: remove the filter the popup was opened for, not whatever row is selected
+		-- when it is confirmed (and nothing if that filter has changed or moved since)
+		if type(data) ~= "table" or filterKey(data.index) == nil or filterKey(data.index) ~= data.key then
 			return
 		end
 		
-		M.MarkFilterRemoved(FilterScrollSelect) -- 3.3.5a port: auto-update won't add it back
-		M.RemoveChatFilter(FilterScrollSelect)
+		M.MarkFilterRemoved(data.index) -- 3.3.5a port: auto-update won't add it back
+		M.RemoveChatFilter(data.index)
 		M.FilterListDrawUpdate(FilterScrollFrame)
 	end,	
 	EditBoxOnEscapePressed = function(self)
@@ -339,7 +353,8 @@ local function ButtonFilterRemove()
 		return
 	end
 	
-	StaticPopup_Show("GIL_FILTERREMOVE", L["BOX_10"])
+	-- 3.3.5a fix: the popup carries its filter (StaticPopup_Show's 4th argument is dialog.data)
+	StaticPopup_Show("GIL_FILTERREMOVE", L["BOX_10"], nil, { index = FilterScrollSelect, key = filterKey(FilterScrollSelect) })
 end
 
 local function ButtonIgnoreRemove()
@@ -695,6 +710,13 @@ function M.FilterScrollEditMenu()
 		Tab2EditDesc   = GlobalIgnoreDB.filterDesc[FilterScrollSelect]
 		Tab2EditFilter = GlobalIgnoreDB.filterList[FilterScrollSelect]
 		Tab2EditActive = GlobalIgnoreDB.filterActive[FilterScrollSelect]
+
+		-- 3.3.5a fix: remember which filter this is (Save checks it), and close the Remove/Reset
+		-- popups, which would otherwise change the filters under the open editor
+		Tab2EditIndex  = FilterScrollSelect
+		Tab2EditKey    = filterKey(FilterScrollSelect)
+		StaticPopup_Hide("GIL_FILTERREMOVE")
+		StaticPopup_Hide("GIL_FILTERRESET")
 
 		M.FilterScrollChangeState(1)
 	end
@@ -1590,6 +1612,14 @@ local function CreateUIFrames()
 			Tab2EditDesc   = GILFrame2EditDescField:GetText()
 			Tab2EditFilter = GILFrame2EditFilterField.EditBox:GetText()
 			
+			-- 3.3.5a fix: write only to the filter the editor was opened for; if it was removed or
+			-- moved meanwhile, another filter would be overwritten (and marked user-edited)
+			if FilterScrollSelect ~= Tab2EditIndex or Tab2EditKey == nil or filterKey(Tab2EditIndex) ~= Tab2EditKey then
+				M.ShowMsg("Filter not saved: it was changed or removed while the editor was open")
+				M.FilterScrollChangeState(0)
+				return
+			end
+
 			GlobalIgnoreDB.filterDesc[FilterScrollSelect] = Tab2EditDesc
 			GlobalIgnoreDB.filterList[FilterScrollSelect] = Tab2EditFilter
 			GlobalIgnoreDB.filterActive[FilterScrollSelect] = Tab2EditActive

@@ -35,13 +35,15 @@ function ns.Constants.GetClientFlavor()
         return clientFlavor
     end
 
-    if WOW_PROJECT_BURNING_CRUSADE_CLASSIC
+    local interfaceVersion = tonumber((select(4, GetBuildInfo()))) or 0
+    if interfaceVersion >= 30000
+        and (interfaceVersion < 30400 or WOW_PROJECT_ID == nil) then
+        -- 3.3.5a port: the interface version identifies 3.3.5a (30300). WOW_PROJECT_ID is
+        -- ignored on 3.3.x: compat libraries such as !!!ClassicAPI define it (= 11).
+        clientFlavor = ns.Constants.CLIENT_WOTLK
+    elseif WOW_PROJECT_BURNING_CRUSADE_CLASSIC
         and WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC then
         clientFlavor = ns.Constants.CLIENT_TBC
-    elseif WOW_PROJECT_ID == nil
-        and (tonumber((select(4, GetBuildInfo()))) or 0) >= 30000 then
-        -- 3.3.5a has no WOW_PROJECT_* constants; the interface version identifies it.
-        clientFlavor = ns.Constants.CLIENT_WOTLK
     else
         clientFlavor = ns.Constants.CLIENT_ERA
     end

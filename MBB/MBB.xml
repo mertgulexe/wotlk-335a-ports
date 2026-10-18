@@ -85,7 +85,9 @@
 				if( MBB_Options.AttachToMinimap == 1 ) then
 					MBB_DragFlag = 0;
 					local point,_,_,xpos,ypos = self:GetPoint();
-					MBB_Options.ButtonPos = {xpos,ypos};
+					-- 3.3.5a fix: save the position at 100% size (see MBB_SetButtonPosition)
+					local s = self:GetScale(); local half = self:GetWidth() / 2;
+					MBB_Options.ButtonPos = {(xpos + half) * s - half, (ypos - half) * s + half};
 					MBB_Options.DetachedButtonPos = point;
 				elseif MBB_Options.DetachedButtonLocked ~= 1 then
 					self:StopMovingOrSizing();
@@ -903,7 +905,9 @@
         <OnLoad>
             if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(self, 190); end
             if UIDropDownMenu_JustifyText then UIDropDownMenu_JustifyText(self, "LEFT"); end
-            if UIDropDownMenu_Initialize then UIDropDownMenu_Initialize(self, MBB_ProfileDropdown_Initialize); end
+            -- 3.3.5a fix: no UIDropDownMenu_Initialize here. It runs the init function
+            -- at once, before the SavedVariables are loaded, which made a fresh profile
+            -- store and hid a classic MBB's settings. OnShow initializes it.
             self:RegisterEvent("PLAYER_REGEN_DISABLED");
             self:RegisterEvent("PLAYER_REGEN_ENABLED");
         </OnLoad>
@@ -912,7 +916,12 @@
             MBB_ProfileDropdown_Refresh();
         </OnShow>
         <OnEvent>
-            MBB_ProfileDropdown_Refresh();
+            -- 3.3.5a fix: only lock/unlock for combat; a full refresh rewrote whatever menu was open
+            if event == "PLAYER_REGEN_DISABLED" then
+                if UIDropDownMenu_DisableDropDown then UIDropDownMenu_DisableDropDown(self); end
+            else
+                if UIDropDownMenu_EnableDropDown then UIDropDownMenu_EnableDropDown(self); end
+            end
         </OnEvent>
     </Scripts>
 </Frame>
@@ -1000,6 +1009,8 @@
 						end
 						-- 3.3.5a port: sliders do not snap to their step while dragging
 						MBB_Options.ButtonScale = math.floor(MBB_OptionsFrame_ButtonScaleSlider:GetValue() * 20 + 0.5) / 20;
+						-- 3.3.5a fix: re-anchor for the new size, so the button keeps its place on the ring
+						MBB_SetButtonPosition();
 						MBB_SetPositions();
 					</OnClick>
 				</Scripts>

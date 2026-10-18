@@ -67,7 +67,12 @@ end
 -- 3.3.5a: the client decodes text typed on a Turkish keyboard (and pasted text) with the Western code page, so
 -- g breve, dotless i, s cedilla, G breve, dotted I and S cedilla arrive as eth, y acute, thorn, ETH, Y acute and
 -- THORN. Every pair is 2 bytes in UTF-8, so swapping them back keeps the cursor where it was. Runs only for user
--- input while the "Turkish Letters" setting is on (genuine eth/thorn, e.g. Icelandic, would be swapped too).
+-- input while the "Turkish Letters" setting is on (an eth, thorn or y acute typed for Icelandic, Faroese, Czech or
+-- Slovak is swapped too).
+-- 3.3.5a fix: only the text just typed or pasted is converted, never letters that were already in the box (an old
+-- note with a genuine eth or thorn stays as it is). Every OnTextChanged of the three boxes, programmatic ones
+-- included, passes through here, so editBox.tpTurkishText is the box's text before this change. A new box starts
+-- empty, and the three boxes get this script before any text is set.
 local TURKISH_PATTERN = "\195[\144\157\158\176\189\190]"
 local TURKISH_LETTERS = {
     ["\195\176"] = "\196\159", -- U+00F0 eth      -> U+011F g breve
@@ -78,14 +83,53 @@ local TURKISH_LETTERS = {
     ["\195\158"] = "\197\158", -- U+00DE THORN    -> U+015E S cedilla
 }
 
+-- 3.3.5a fix: the number of bytes (at most n) the strings a and b start with in common; few comparisons of
+-- whole substrings rather than a Lua loop over every byte of a long page
+local function CommonPrefixLength(a,b,n)
+    if a:sub(1,n)==b:sub(1,n) then
+        return n -- typing or pasting without a selection: the whole old text in front of the cursor is still there
+    end
+    local low,high = 0,n-1
+    while low<high do
+        local middle = ceil((low+high)/2)
+        if a:sub(1,middle)==b:sub(1,middle) then
+            low = middle
+        else
+            high = middle-1
+        end
+    end
+    return low
+end
+
 function t.compat.FixTurkishLetters(editBox,userInput)
-    if not userInput or not (t.settings.saved and t.settings.saved.TurkishLetters) then
+    local text = editBox:GetText()
+    local before = editBox.tpTurkishText or "" -- 3.3.5a fix: the text before this change
+    editBox.tpTurkishText = text
+    if not userInput or not (t.settings.saved and t.settings.saved.TurkishLetters) or not text:find(TURKISH_PATTERN) then
         return
     end
-    local text = editBox:GetText()
-    if text:find(TURKISH_PATTERN) then
-        local cursor = editBox:GetCursorPosition()
-        editBox:SetText((text:gsub(TURKISH_PATTERN,TURKISH_LETTERS)))
-        editBox:SetCursorPosition(cursor)
+    -- 3.3.5a fix: the cursor is a byte offset and stands right after what was typed or pasted. The text after it was
+    -- there before; the new text starts after the part both texts begin with (a replaced selection is not part of it)
+    local cursor = editBox:GetCursorPosition()
+    local tail = #text-cursor
+    local first
+    if tail>=0 and tail<=#before then
+        first = CommonPrefixLength(text,before,min(cursor,#before-tail))+1
+    else
+        first = cursor-1 -- the old text does not fit: only the letter in front of the cursor (2 bytes)
+    end
+    first = max(1,first)
+    while first>1 and (text:byte(first) or 0)>=128 and (text:byte(first) or 0)<192 do
+        first = first-1 -- start at the first byte of a letter: the common part can end inside a 2-byte letter
+    end
+    if first>cursor then
+        return -- nothing new (a deletion)
+    end
+    local typed = text:sub(first,cursor)
+    if typed:find(TURKISH_PATTERN) then
+        text = text:sub(1,first-1)..(typed:gsub(TURKISH_PATTERN,TURKISH_LETTERS))..text:sub(cursor+1)
+        editBox.tpTurkishText = text
+        editBox:SetText(text)
+        editBox:SetCursorPosition(cursor) -- each pair is 2 bytes to 2 bytes, so the cursor stays after the letter
     end
 end

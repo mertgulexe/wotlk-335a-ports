@@ -33,7 +33,9 @@ end
 -- nil for a missing file (Atlas relies on this); other clients are not checked.
 function Compat.SetTextureFile(texture, path)
     local loaded = texture:SetTexture(path)
-    if WOW_PROJECT_ID == nil then
+    -- 3.3.5a port: same client test as GetClientFlavor (Constants.lua loads first), not
+    -- WOW_PROJECT_ID, which 3.3.5a compat libraries define.
+    if ns.Constants.GetClientFlavor() == ns.Constants.CLIENT_WOTLK then
         return loaded and true or false
     end
     return true

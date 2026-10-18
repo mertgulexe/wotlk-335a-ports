@@ -18,7 +18,7 @@ Built and tested for the 3.3.5a client (build 12340) with WotLK content.
 - **Current-instance detection** matches the `GetInstanceInfo()` name against new `mapNames` fields. 3.3.5a has no instanceID return and no `UnitPosition`. It also picks the current difficulty.
 - **Robust window build:** if anything fails while the main window or settings panel is being built, it fails cleanly instead of leaving a half-built, stuck window.
 - **Images:** the TGA assets were re-saved as uncompressed with bottom-left origin. The pixels are identical.
-- **Modern clients:** the original code paths are kept. Flavor detection still uses `WOW_PROJECT_ID` when it exists, and `AtlasLootRevival_TBC.toc` also loads `Core\Compat.lua`.
+- **Modern clients:** the original code paths are kept. On clients other than 3.3.x, flavor detection still uses `WOW_PROJECT_ID`, and `AtlasLootRevival_TBC.toc` also loads `Core\Compat.lua`.
 
 ## WotLK support
 - **New `wotlk` flavor** (3.3.5a):
@@ -37,6 +37,13 @@ Built and tested for the 3.3.5a client (build 12340) with WotLK content.
   - a player-faction filter for WotLK tables, with a "Show other faction's items" setting.
 - **SavedVariables:** schema 5. Its migration drops remembered difficulties that are no longer valid.
 - **Feedback link:** hidden, because upstream does not support this build.
+
+## Later fixes
+- **Client detection:** 3.3.5a is recognised by its interface number (30300) from `GetBuildInfo`, not by a missing `WOW_PROJECT_ID`. Compat libraries such as !!!ClassicAPI define `WOW_PROJECT_ID = 11`, which used to hide all TBC and WotLK content and the missing-map fallback.
+- **Encounter list:** scrolling the list no longer leaves the old row highlighted, so only the selected encounter looks selected.
+- **Difficulty switch:** when the selected encounter does not exist in the new difficulty, the map now moves to the floor of the encounter that replaces it.
+- **Closing the window:** every way of closing it (Esc, the X button, `/alr`, the minimap button) also closes the settings panel, the drop-down menus and the feedback box, so they no longer pop up on the next open.
+- **Icecrown Citadel trash:** the 25-player trash drops are also listed in 25-player Heroic, in the data and in the generator.
 
 ## Data sources and licensing (please check before merging)
 - **WotLK loot lists and drop rates:** converted from AtlasLoot Enhanced 5.11.04 for 3.3.5 (`X-License: GPL v2`).

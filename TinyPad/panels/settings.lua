@@ -54,7 +54,7 @@ t.settings.optionsInfo = {
     {"check","OpenOnLogin","Open On Login","When you log in or /reload, start with TinyPad opened."},
     {"check","SharePosition","Share Position","Remember the size and position of the TinyPad window across all characters."},
     {"check","StartOnPage1","Start On First Page","When opening TinyPad for the first time each session, start on the first page instead of the last."},
-    {"check","TurkishLetters","Turkish Letters","The 3.3.5a client turns some Turkish letters you type or paste (g breve, dotless i, s cedilla, dotted I) into other letters. Convert them back as you type.\n\n\124cffaaaaaaTurn this off if you write Icelandic or Faroese."},
+    {"check","TurkishLetters","Turkish Letters","The 3.3.5a client turns some Turkish letters you type or paste (g breve, dotless i, s cedilla, dotted I) into other letters. Convert them back as you type (text already on a page is left as it is).\n\n\124cffaaaaaaTurn this off if you write Czech, Slovak, Icelandic or Faroese: y acute, eth and thorn you type are converted too."}, -- 3.3.5a fix: warns more languages
     {"spacer",8},
     {"header","Font Typeface"},
     {"spacer",8},

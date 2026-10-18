@@ -1809,6 +1809,8 @@ local generatedLoot = {
             { itemID = 49426, category = "loot", difficulties = { raid10 = true, raid25 = true, raid10h = true, raid25h = true }, dropChances = { wotlk = 100.0 } },
         },
         },
+        -- 3.3.5a fix: these BoE items drop from 25-player trash in Normal and Heroic, so they are
+        -- listed under raid25 and raid25h (AL_ROW_FIXES).
         trash_drops = {
         key = "trash_drops",
         name = "Trash Drops",
@@ -1823,13 +1825,13 @@ local generatedLoot = {
         x = nil,
         y = nil,
         items = {
-            { itemID = 50449, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50450, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50451, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50452, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50447, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50453, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
-            { itemID = 50444, category = "loot", difficulties = { raid25 = true }, dropChanceStatus = "unverified" },
+            { itemID = 50449, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50450, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50451, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50452, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50447, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50453, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
+            { itemID = 50444, category = "loot", difficulties = { raid25 = true, raid25h = true }, dropChanceStatus = "unverified" },
         },
         },
     },

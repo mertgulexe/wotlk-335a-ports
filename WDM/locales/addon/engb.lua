@@ -181,3 +181,8 @@ L["taxinode_continent_unupe"] = "Ship to Unu'pe"
 L["taxinode_continent_valiancekeep"] = "Ship to Valiance Keep"
 L["taxinode_continent_vengeancelanding"] = "Zeppelin to Vengeance Landing"
 L["taxinode_continent_warsonghold"] = "Zeppelin to Warsong Hold"
+
+-- 3.3.5a port: dungeon map viewer (dungeonmap.lua)
+L["dungeonmap_hint_text"] = "Right-click: back to the zone map"
+L["dungeonmap_hint_floors_text"] = "Mouse wheel or arrows: change floor     Right-click: back to the zone map"
+L["dungeonmap_no_art_text"] = "This map is not in your client. Classic and TBC dungeon maps need Trimitor's WDM map patch."

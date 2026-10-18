@@ -73,6 +73,11 @@ end
 -- for addons that generate reports in TinyPad and want to clean up old copies of data. Use Carefully!
 function TinyPad:DeletePagesContaining(regex)
     regex = type(self)=="table" and regex or self -- in case TinyPad.DeletePagesContaining(regex) used
+    if t.init.isInitialized then
+        -- 3.3.5a fix: keep what was typed on the open page (the moves below pass dontSave, which reloaded the page from
+        -- the saved copy even when nothing matched); the pattern is then also matched against what is on screen
+        t.pages:SavePage()
+    end
     if type(regex)=="string" and regex:len()>0 then
         local pageNumsToDelete = {}
         for pageNum=1,#t.pages.saved do

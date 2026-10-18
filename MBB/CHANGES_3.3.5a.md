@@ -28,3 +28,12 @@ Changes in the code are marked `3.3.5a port`.
 - **First-run message:** it waits for the first minimap scan. Before this it always said "Collected 0 minimap buttons".
 - **Button size:** the slider doesn't snap while you drag it on this client, so the saved size is rounded to 5% steps.
 - **Version check:** turned off. Newer upstream releases don't run on this client, so their update notices would only be noise.
+- **`/mbb reset all`:** it no longer fails with a Lua error when two or more buttons are kept on the minimap, and it puts all of them back in the bag. Names of buttons whose addon is gone are just removed from the list.
+- **`/mbb reset all` and Duplicate:** changes made after either were lost the next time a Blizzard window loaded (talents, auction house) or after a relog. The live options now stay tied to the active profile.
+- **Settings from an older MBB:** they were replaced by the defaults when this port was installed over it. The options window's profile list was built before the saved settings were loaded; it now waits for them.
+- **Button Manager:** a button that is no longer on the minimap (for example a detached Questie icon) shows as not loaded and can't be ticked. Ticking it put a broken entry in the bag, and the bag then couldn't be closed.
+- **Atlas:** "Show Button on Minimap" can be turned off again while the bag is closed. A button whose frame was hidden when MBB found it comes back to the bag when its addon shows it again.
+- **Taking a button out of the bag:** if its addon has the button hidden (TinyPad's is off by default), it stays hidden instead of appearing on the minimap.
+- **Button size:** changing it, or `/mbb reset position` at a size other than 100%, no longer moves the MBB button off the minimap's edge. Positions are saved at 100% size, so ones saved before stay where they are.
+- **Combat:** the profile list no longer resets other open dropdown menus (tracking, unit menus) when combat starts or ends. It is only locked and unlocked.
+- **Profile pop-ups:** Esc now closes the New, Rename and Duplicate pop-ups.

@@ -86,6 +86,13 @@ function t.editor:Init()
     t.editor.titleBorder:SetTexCoord(0.5625,0.6875,0,0.4375)
     t.editor.titleBorder:SetVertexColor(0.5,0.5,0.5)
     t.editor.titleText = t.editor:CreateFontString(nil,"ARTWORK","GameFontHighlightSmall")
+    -- 3.3.5a fix: Friz Quadrata has no G/g breve, dotted I or S/s cedilla (3.3.5a has no font fallback), so a Turkish
+    -- bookmark title drew with gaps; Arial Narrow, as in the title edit box, at the same size
+    -- (only when it is Friz Quadrata: koKR/zhCN/zhTW clients use their own font here)
+    local titleFile,titleSize,titleFlags = t.editor.titleText:GetFont()
+    if not titleFile or titleFile:upper():find("FRIZQT__",1,true) then
+        t.editor.titleText:SetFont(t.constants.FALLBACK_FONT,titleSize or 10,titleFlags)
+    end
     t.editor.titleText:SetPoint("TOPLEFT",8,-6)
     t.editor.titleText:SetPoint("BOTTOMRIGHT",t.editor,"TOPRIGHT",-8,-16)
     -- purpose of this frame is to capture clicks so they don't go to the editor and set focus;

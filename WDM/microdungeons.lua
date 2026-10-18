@@ -227,6 +227,7 @@ function MD:CreateLevelDropDown()
     local header = dd:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     header:SetPoint("TOPLEFT", 20, 10)
     header:SetText(FLOOR)
+    dd.header = header -- 3.3.5a fix: hidden on the windowed map, like Blizzard's (see WorldMapLevelDropDown_Update)
     UIDropDownMenu_SetWidth(dd, 130)
     dd.initialize = MicroDungeonLevelDropDown_Initialize
     dd:Hide()
@@ -237,12 +238,35 @@ local function MicroDungeonLevelName(entry)
     return WDM:GetFloorName(entry[1]:upper(), entry[2]) or string.format(FLOOR_NUMBER, entry[2])
 end
 
+-- 3.3.5a fix: UIErrorsFrame is a child of UIParent, which the full-screen map hides, so the combat refusal
+-- goes to WDM's own message frame on WorldMapFrame then (UIErrorsFrame's place, font and display time).
+local mapErrorFrame
+local function ShowSwitchRefused()
+    if UIErrorsFrame:IsVisible() then
+        UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1.0, 0.1, 0.1, 1.0)
+        return
+    end
+    if not mapErrorFrame then
+        mapErrorFrame = CreateFrame("MessageFrame", nil, WorldMapFrame)
+        mapErrorFrame:SetWidth(512)
+        mapErrorFrame:SetHeight(60)
+        mapErrorFrame:SetPoint("TOP", WorldMapFrame, "TOP", 0, -122)
+        mapErrorFrame:SetFontObject(ErrorFont)
+        mapErrorFrame:SetJustifyH("CENTER")
+        mapErrorFrame:SetInsertMode("TOP")
+        mapErrorFrame:SetTimeVisible(5)
+    end
+    -- set on every use: the map size toggle re-parents WorldMapFrame (Blizzard re-sets WorldMapTooltip's strata too)
+    mapErrorFrame:SetFrameStrata("HIGH")
+    mapErrorFrame:AddMessage(ERR_NOT_IN_COMBAT, 1.0, 0.1, 0.1, 1.0)
+end
+
 -- 3.3.5a taint fix: switching caves needs SetMapByID from addon code, which runs Blizzard's map update
 -- insecurely; 3.3.5a has no secure way to do it. In combat that blocks WorldMapBlobFrame, so WDM refuses there.
 local switchNoticeShown
 local function MicroDungeonSwitchAllowed()
     if InCombatLockdown() then
-        UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1.0, 0.1, 0.1, 1.0)
+        ShowSwitchRefused() -- 3.3.5a fix: also visible on the full-screen map
         return false
     end
     if not switchNoticeShown then
@@ -262,6 +286,12 @@ function MD:WorldMapLevelDropDown_Update()
 
     -- 3.3.5a taint fix: show WDM's own dropdown; Blizzard's WorldMapLevelDropDown is left alone
     UIDropDownMenu_SetText(dd, MicroDungeonLevelName(self.mdlevels[mapName][GetCurrentMicroDungeonLevel()]))
+    -- 3.3.5a fix: follow the level of Blizzard's floor dropdown on every update. WorldMap_ToggleSizeDown raises
+    -- it above the windowed map after WDM's dropdown was made; the arrow button is a child frame, set it too.
+    local lvl = WorldMapLevelDropDown:GetFrameLevel()
+    dd:SetFrameLevel(lvl)
+    _G[dd:GetName() .. "Button"]:SetFrameLevel(lvl + 1)
+    if WORLDMAP_SETTINGS.size == WORLDMAP_WINDOWED_SIZE then dd.header:Hide() else dd.header:Show() end
     dd:Show()
     if (WORLDMAP_SETTINGS.size ~= WORLDMAP_WINDOWED_SIZE) then
         WorldMapLevelUpButton:Show();

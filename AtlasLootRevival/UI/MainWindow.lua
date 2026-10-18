@@ -1189,6 +1189,26 @@ function MainWindow:Build(frame)
     -- the window again redraws them, which queues whatever is still uncached.
     frame:SetScript("OnHide", function()
         Compat.CancelItemRequests()
+        -- 3.3.5a fix: close the child panels and menus on every close path (Esc too), or
+        -- they reappear on the next open. Nil guards: this also runs before they exist.
+        local window = MainWindow
+        if window.instanceMenu then
+            window.instanceMenu:Hide()
+        end
+        if window.floorMenu then
+            window.floorMenu:Hide()
+        end
+        if window.mapClusterMenu then
+            window.mapClusterMenu:Hide()
+            window.mapClusterMenu.pin = nil
+        end
+        if window.feedbackDialog then
+            window.feedbackDialog.editBox:ClearFocus()
+            window.feedbackDialog:Hide()
+        end
+        if ns.modules.SettingsPanel then
+            ns.modules.SettingsPanel:Hide()
+        end
     end)
     frame:SetScript("OnShow", function()
         MainWindow:RefreshLoot()
@@ -1944,7 +1964,8 @@ function MainWindow:SelectDifficulty(difficulty)
         selectedBoss = entryKeys[1]
     end
     if selectedBoss then
-        self:SelectBoss(selectedBoss, true)
+        -- 3.3.5a fix: keep the viewed floor only when the same boss stays selected.
+        self:SelectBoss(selectedBoss, selectedBoss == self.selectedBossKey)
     else
         self.selectedBossKey = nil
         self:RefreshLoot()
@@ -2072,8 +2093,9 @@ function MainWindow:ScrollEncounterList(delta)
     if nextOffset ~= self.sidebarOffset then
         self.sidebarOffset = nextOffset
         self:RefreshSidebar()
-        if self.selectedBossKey and self.bossButtons[self.selectedBossKey] then
-            SetButtonHighlight(self.bossButtons[self.selectedBossKey], true)
+        -- 3.3.5a fix: the rows are reused, so clear the old row's highlight as well.
+        for key, button in pairs(self.bossButtons) do
+            SetButtonHighlight(button, key == self.selectedBossKey)
         end
     end
 end

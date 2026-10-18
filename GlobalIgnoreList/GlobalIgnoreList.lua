@@ -225,13 +225,18 @@ local function getSyncValue (index)
 	local p = ""
 	local v = 0
 	
+	-- 3.3.5a fix: old SavedVariables can have a shorter syncInfo list (a nil entry raised an error)
+	if type(GlobalIgnoreDB.syncInfo[index]) ~= "table" then
+		return 0, 0
+	end
+
 	for c = 1, #GlobalIgnoreDB.syncInfo[index] do
 	
 		s = GlobalIgnoreDB.syncInfo[index][c]
 		p = string.find(s, "@", 1, true)
 			
-		if p > 0 then
-			v = tonumber(string.sub(s, p + 1))
+		if p and p > 0 then -- 3.3.5a fix: a value without "@" raised an error
+			v = tonumber(string.sub(s, p + 1)) or 0
 			s = string.sub(s, 1, p - 1)
 			
 			if V.playerName == s then
@@ -246,6 +251,10 @@ end
 local function setSyncValue (name, index)
 
 	local val,idx = getSyncValue(index)
+
+	if type(GlobalIgnoreDB.syncInfo[index]) ~= "table" then -- 3.3.5a fix: see getSyncValue
+		GlobalIgnoreDB.syncInfo[index] = {}
+	end
 	
 	if idx == 0 then
 		idx = #GlobalIgnoreDB.syncInfo[index] + 1	
@@ -652,6 +661,10 @@ function M.SyncIgnoreList (silent)
 	-- keeps those replies quiet (when sync messages are off) until this time
 	V.quietUntil = GetTime() + 10
 	
+	-- 3.3.5a fix: entries are added and removed directly below (AddToList/RemoveFromList), so the
+	-- window's sort index must be rebuilt at the end (a stale one raised errors on scrolling)
+	local listChanged = false
+
 	-- import ignore list if first time sync
 	
 	if GlobalIgnoreImported == nil or GlobalIgnoreImported ~= true then
@@ -681,6 +694,7 @@ function M.SyncIgnoreList (silent)
 						added = added + 1
 						
 						AddToList(name, faction)
+						listChanged = true -- 3.3.5a fix
 										
 						if silent == false then
 							M.ShowMsg (format(L["LOAD_3"], name))
@@ -707,6 +721,7 @@ function M.SyncIgnoreList (silent)
 		if tmp == nil or tmp == "" then
 			M.debugMsg ("Blank character name found in position " .. count);
 			RemoveFromList(count)
+			listChanged = true -- 3.3.5a fix
 		elseif (GlobalIgnoreDB.expList[count] or 0) > 0 and M.daysFromToday(GlobalIgnoreDB.dateList[count]) >= GlobalIgnoreDB.expList[count] then
 			M.debugMsg ("Removing character "..entry.." due to expiration date")
 		
@@ -720,6 +735,7 @@ function M.SyncIgnoreList (silent)
 
 			RemoveFromList(count)
 			V.needSorted = true
+			listChanged = true -- 3.3.5a fix
 		end
 	end
 	
@@ -787,25 +803,9 @@ function M.SyncIgnoreList (silent)
 		end
 	end
 	
-	if GlobalIgnoreDB.trackChanges == true then
-		local listCount = 0
-		
-		while GlobalIgnoreDB.ignoreList[listCount] do
-		
-			if GlobalIgnoreDB.typeList[listCount] == "player" then
-			
-				local tries = getSyncValue(listCount)
-
-				if tries >= maxSyncTries then
-					M.debugMsg ("Removing "..GlobalIgnoreDB.ignoreList[listCount].." after "..tries.." failed attempts to add to ignore list")
-					C_FriendList.DelIgnore(M.removeServer(GlobalIgnoreDB.ignoreList[listCount]))
-					listCount = listCount - 1				
-				end
-			end
-			
-			listCount = listCount + 1
-		end	
-	end
+	-- 3.3.5a fix: the "remove after maxSyncTries failed adds" loop started at index 0 and never ran.
+	-- It is gone: removing those players from GIL could lose good entries (for example adds that
+	-- failed because the server list was full).  They stay on GIL; the loop below stops sending them.
 
 	-- move qualified players to account wide ignore if there is room for it
 
@@ -833,9 +833,20 @@ function M.SyncIgnoreList (silent)
 						ok = (isServerMatch(V.serverName, M.getServer(name))) or (GlobalIgnoreDB.sameserver == false and not V.wowIs335)
 					end
 					
+					if ok and getSyncValue(key) >= maxSyncTries then
+						-- 3.3.5a fix: this character sent the player maxSyncTries times and it never
+						-- reached the server list (typo, renamed or deleted character): keep it on GIL
+						-- (chat is still filtered) but stop sending and announcing it every session.
+						-- The count is cleared when the name shows up on the server list (above).
+						M.debugMsg ("Not sending "..name.." again after "..maxSyncTries.." failed attempts to add to ignore list")
+						ok = false
+					end
+
 					if ok then
 						ignoreCount = ignoreCount + 1
 						
+						-- 3.3.5a fix: counted only here, for a name that is really sent (never for
+						-- names left out by the 50-entry cap, the realm or the faction check)
 						setSyncValue(name, key)
 						
 						--name = M.removeServer(name)
@@ -858,6 +869,11 @@ function M.SyncIgnoreList (silent)
 
 	V.GIL_InSync = false
 	V.GIL_SyncOK = true
+
+	-- 3.3.5a fix: rebuild the window's sort index after the direct list changes above
+	if listChanged or V.needSorted then
+		M.GILUpdateUI(true)
+	end
 end
 
 function M.PruneIgnoreList (days, doit)
@@ -2019,7 +2035,20 @@ function M.filterComplex (filterStr, chatStr, chNumber, chName)
 							chunk = sub(chunk, 0, count - 2) .. "F" .. sub(chunk, count+1, len(chunk))
 						elseif sub(chunk, count, count) == "F" then
 							chunk = sub(chunk, 0, count - 2) .. "T" .. sub(chunk, count+1, len(chunk))			
+						elseif sub(chunk, count, count) == "!" then
+							-- 3.3.5a fix: "not not x" is x (this looped forever before)
+							chunk = sub(chunk, 0, count - 2) .. sub(chunk, count+1, len(chunk))
+						else
+							-- 3.3.5a fix: "not" without a term after it ("x and not", "not or x")
+							-- never changed the chunk: endless loop, the client froze
+							V.lastFilterError = true
+							break
 						end				
+					end
+
+					-- 3.3.5a fix: a broken filter matches nothing (result keeps its "(" and is not "T")
+					if V.lastFilterError == true then
+						break
 					end
 		
 					while find(chunk, "|", 1, true) do

@@ -141,6 +141,13 @@ function t.bookmarks:UpdateList()
         if title then
             if not buttons[buttonIdx] then -- create new list button if one doesn't already exist
                 buttons[buttonIdx] = CreateFrame("Button",nil,t.bookmarks.scrollFrame.scrollChild,"TinyPadBookmarkButtonTemplate")
+                -- 3.3.5a fix: Arial Narrow at the template's size; Friz Quadrata (SystemFont_Tiny) has no G/g breve,
+                -- dotted I or S/s cedilla, so Turkish bookmark titles drew with gaps
+                -- (only when it is Friz Quadrata: koKR/zhCN/zhTW clients use their own font here)
+                local file,size,flags = buttons[buttonIdx].text:GetFont()
+                if not file or file:upper():find("FRIZQT__",1,true) then
+                    buttons[buttonIdx].text:SetFont(t.constants.FALLBACK_FONT,size or 9,flags)
+                end
                 buttons[buttonIdx]:SetPoint("TOPLEFT",0,(buttonIdx-1)*t.constants.BOOKMARK_HEIGHT*(-1))
                 buttons[buttonIdx]:SetPoint("TOPRIGHT",0,(buttonIdx-1)*t.constants.BOOKMARK_HEIGHT*(-1))
                 buttons[buttonIdx]:SetScript("OnMouseUp",t.bookmarks.BookmarkButtonOnMouseUp)
