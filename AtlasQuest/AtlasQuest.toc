@@ -32,3 +32,4 @@
 
 AtlasQuest_InsideFrame.xml
 AtlasQuest.xml
+AtlasQuest_AutoFinish.lua

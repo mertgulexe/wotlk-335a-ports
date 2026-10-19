@@ -9,12 +9,13 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 |---|---|---|---|
 | AtlasLootRevival | AtlasLoot Revival contributors | **Ported** | Works on 3.3.5a, with all WotLK dungeons and raids added. The WotLK loot data comes from AtlasLoot Enhanced. Details are in [`CHANGES_3.3.5a.md`](AtlasLootRevival/CHANGES_3.3.5a.md). |
 | TinyPad | Gello | **Ported** | Works on 3.3.5a and keeps notes from older TinyPad versions. Adds the Roboto Mono font (SIL Open Font License) and fixes typing Turkish letters. |
-| GlobalIgnoreList | IceyPop | **Ported** | Works on 3.3.5a. Chat filters you edit stay edited, and there's no chat message at login. |
+| GlobalIgnoreList | IceyPop | **Ported** | Works on 3.3.5a. Chat filters you edit stay edited, and there's no chat message at login. Also fixes a game freeze caused by a filter ending in "not", and errors in the ignore list. |
 | MBB (MinimapButtonBag-Reborn) | GrazyMonster; based on MinimapButtonBag by karlsnyder, vallantv and SkunFly | **Ported** | Works on 3.3.5a: collects the minimap icons into one button. Icons are gathered before the loading screen ends, and the button circles the minimap edge when dragged. Adds an option to hide its tooltip. Details are in [`CHANGES_3.3.5a.md`](MBB/CHANGES_3.3.5a.md). |
 | WDM (WoW Dungeon Maps) | Trimitor | **Fixed** | Opening the map in combat no longer causes "Interface action failed". Clicking a dungeon or raid entrance on the world map shows that instance's map, with its floors. Needs the map files listed under [Requirements](#requirements). |
 | Auctionator | Zirco | **Modified** | The "Scan AH" button in the profession window is removed. |
 | AuctionatorMiniFeatures | ckaotik | **Fixed** | Fixes an error at load. |
 | Attune | CixiDelmont, Yvely | **Modified** | No chat message at login. The minimap icon appears right at login instead of after the server sends quest data. |
+| AtlasQuest | Thandrenn | **Modified** | Quests you complete are ticked as finished automatically, at login and after each turn-in. Boxes you untick by hand stay unticked. |
 
 ## Unmodified (backups)
 
@@ -27,7 +28,6 @@ These are stock copies, untouched:
 | AllStats | Ganoran |
 | Atlas, Atlas_Battlegrounds, Atlas_DungeonLocs, Atlas_OutdoorRaids, Atlas_Transportation | Dan Gilbert and the Atlas team |
 | AtlasLoot, AtlasLootFu, AtlasLoot_BurningCrusade, AtlasLoot_Crafting, AtlasLoot_OriginalWoW, AtlasLoot_WorldEvents, AtlasLoot_WrathoftheLichKing | Hegarol and the AtlasLoot team |
-| AtlasQuest | Thandrenn |
 | GearScoreLite | Mirrikat45 & Leo |
 | LibMapData-1.0 | (no author listed) |
 | Postal | Xinhuan |
