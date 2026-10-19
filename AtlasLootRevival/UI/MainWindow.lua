@@ -2066,6 +2066,22 @@ function MainWindow:GetCurrentInstanceKey()
     return nil
 end
 
+-- 3.3.5a port: the map floor that shows a dungeon level (0 = the terrain map), as the client names the tiles.
+local function FloorIndexForLevel(instance, level)
+    local floors = GetMapFloors(instance)
+    if not floors or not level then
+        return nil
+    end
+    for _, floor in ipairs(floors) do
+        local pattern = floor.tileFilePattern or instance.map.tileFilePattern
+        local floorLevel = pattern == "tileIndexOnly" and 0 or (floor.textureIndex or floor.index)
+        if floorLevel == level then
+            return floor.index
+        end
+    end
+    return nil
+end
+
 function MainWindow:SelectCurrentInstance()
     local instanceKey, difficulty = self:GetCurrentInstanceKey()
     if not instanceKey then
@@ -2075,6 +2091,13 @@ function MainWindow:SelectCurrentInstance()
     if difficulty then
         -- Ignored when the instance does not list that difficulty.
         self:SelectDifficulty(difficulty)
+    end
+    -- 3.3.5a port: open the map on the floor the player is on (Core/FloorTracker.lua)
+    local tracker = ns.modules.FloorTracker
+    local instance = ns.Data.instances[instanceKey]
+    local floorIndex = tracker and FloorIndexForLevel(instance, tracker:GetFloorLevel(instance))
+    if floorIndex and floorIndex ~= self.selectedFloor then
+        self:SelectFloor(floorIndex)
     end
     return true
 end

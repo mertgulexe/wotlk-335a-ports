@@ -7,7 +7,7 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 
 | Addon | Original author(s) | Status | What changed |
 |---|---|---|---|
-| AtlasLootRevival | AtlasLoot Revival contributors | **Ported** | Works on 3.3.5a, with all WotLK dungeons and raids added. The WotLK loot data comes from AtlasLoot Enhanced. Details are in [`CHANGES_3.3.5a.md`](AtlasLootRevival/CHANGES_3.3.5a.md). |
+| AtlasLootRevival | AtlasLoot Revival contributors | **Ported** | Works on 3.3.5a, with all WotLK dungeons and raids added. The WotLK loot data comes from AtlasLoot Enhanced. Inside an instance, the map opens on the floor you're on. Details are in [`CHANGES_3.3.5a.md`](AtlasLootRevival/CHANGES_3.3.5a.md). |
 | TinyPad | Gello | **Ported** | Works on 3.3.5a and keeps notes from older TinyPad versions. Adds the Roboto Mono font (SIL Open Font License) and fixes typing Turkish letters. |
 | GlobalIgnoreList | IceyPop | **Ported** | Works on 3.3.5a. Chat filters you edit stay edited, and there's no chat message at login. Also fixes a game freeze caused by a filter ending in "not", and errors in the ignore list. |
 | MBB (MinimapButtonBag-Reborn) | GrazyMonster; based on MinimapButtonBag by karlsnyder, vallantv and SkunFly | **Ported** | Works on 3.3.5a: collects the minimap icons into one button. Icons are gathered before the loading screen ends, and the button circles the minimap edge when dragged. Adds an option to hide its tooltip. Details are in [`CHANGES_3.3.5a.md`](MBB/CHANGES_3.3.5a.md). |

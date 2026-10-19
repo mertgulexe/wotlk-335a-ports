@@ -19,6 +19,8 @@ Data\TBC\Loot.lua
 Data\WotLK\Instances.lua
 Data\WotLK\Loot.lua
 Data\WotLK\Overrides.lua
+Data\WotLK\SubzoneFloors.lua
+Core\FloorTracker.lua
 UI\MainWindow.lua
 UI\SettingsPanel.lua
 UI\MinimapButton.lua

@@ -44,6 +44,7 @@ Built and tested for the 3.3.5a client (build 12340) with WotLK content.
 - **Difficulty switch:** when the selected encounter does not exist in the new difficulty, the map now moves to the floor of the encounter that replaces it.
 - **Closing the window:** every way of closing it (Esc, the X button, `/alr`, the minimap button) also closes the settings panel, the drop-down menus and the feedback box, so they no longer pop up on the next open.
 - **Icecrown Citadel trash:** the 25-player trash drops are also listed in 25-player Heroic, in the data and in the generator.
+- **Current floor:** inside an instance, the window opens the map on the floor you are on. The floor comes from the area name you are in (Data/WotLK/SubzoneFloors.lua, made from the client's map DBCs, 29 instances). In an unnamed area it is the floor last known from an area name or from the game itself (when you enter or open the world map). The world map is never changed by the addon.
 
 ## Data sources and licensing (please check before merging)
 - **WotLK loot lists and drop rates:** converted from AtlasLoot Enhanced 5.11.04 for 3.3.5 (`X-License: GPL v2`).
