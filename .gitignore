@@ -10,3 +10,6 @@ Thumbs.db
 desktop.ini
 .DS_Store
 __pycache__/
+
+# Installed locally but not redistributable (license allows only its own author to share it)
+Cell/
