@@ -37,16 +37,39 @@ These are stock copies, untouched:
 
 ## Installing
 
-Copy the addon folders into `World of Warcraft\Interface\AddOns`.
+This repository is the whole `World of Warcraft\Interface\AddOns` folder: clone it, copy the map patch once, and play.
+
+**1. Get the addons.** If you don't have an `AddOns` folder yet, run this in `World of Warcraft\Interface`:
+
+```
+git clone https://github.com/mertgulexe/wotlk-335a-ports.git AddOns
+```
+
+If you already have one, run this inside `World of Warcraft\Interface\AddOns`. Addons with the same name are replaced; other folders, including the game's `Blizzard_*` folders, are left alone:
+
+```
+git init
+git remote add origin https://github.com/mertgulexe/wotlk-335a-ports.git
+git fetch origin main
+git checkout -f -B main origin/main
+```
+
+**2. Copy the dungeon map patch** (enUS client), from inside the `AddOns` folder:
+
+```
+copy "_WDM-patch\enUS\*.MPQ" "..\..\Data\enUS\"
+```
+
+**3. Start the game.** To update later, run `git pull` in the `AddOns` folder.
 
 ## Requirements
 
-**WDM** and **AtlasLootRevival** need Trimitor's Classic & TBC dungeon map patch. It isn't included here; get it from the original source, **[Trimitor/WDM-patch](https://github.com/Trimitor/WDM-patch)** (Releases), and put the files in `World of Warcraft\Data\<yourLocale>\` (e.g. `Data\enUS\`):
+**WDM** and **AtlasLootRevival** use Trimitor's Classic & TBC dungeon map patch. The enUS files are included in [`_WDM-patch/enUS`](_WDM-patch/enUS) and go into `World of Warcraft\Data\enUS\` (step 2 above):
 
-- `patch-<locale>-M.MPQ`: the main patch with the Classic and TBC dungeon maps.
-- `patch-<locale>-N.MPQ`: optional cave and mine maps (beta).
+- `patch-enUS-M.MPQ`: the main patch with the Classic and TBC dungeon maps.
+- `patch-enUS-N.MPQ`: optional cave and mine maps (beta).
 
-WDM's original source is [Trimitor/WDM-addons](https://github.com/Trimitor/WDM-addons). Without the map patch, AtlasLootRevival still works, but its Classic and TBC instances show no map.
+For other client languages, get `patch-<locale>-M.MPQ` and `patch-<locale>-N.MPQ` from **[Trimitor/WDM-patch](https://github.com/Trimitor/WDM-patch)** (Releases) and put them in `Data\<locale>\`. WDM's original source is [Trimitor/WDM-addons](https://github.com/Trimitor/WDM-addons). Without the map patch, AtlasLootRevival still works, but its Classic and TBC instances show no map.
 
 ## Disclaimer
 
