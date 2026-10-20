@@ -32,6 +32,7 @@ These are stock copies, untouched:
 | LibMapData-1.0 | (no author listed) |
 | Postal | Xinhuan |
 | Questie-335 | Aldori and the original Questie team |
+| TinyDPS (0.84, the last 3.3.x version) | Sideshow |
 
 ## Installing
 
