@@ -32,11 +32,8 @@ These are stock copies, untouched:
 | LibMapData-1.0 | (no author listed) |
 | Postal | Xinhuan |
 | Questie-335 | Aldori and the original Questie team |
+| Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re |
 | TinyDPS (0.84, the last 3.3.x version) | Sideshow |
-
-## Used, but not included
-
-- **Cell** (raid-style party and raid frames), by enderneko; WotLK build by NoM0Re. Its license doesn't allow others to share it, so get it from the source: **[NoM0Re/Cell-WotLK](https://github.com/NoM0Re/Cell-WotLK)** (Releases).
 
 ## Installing
 
