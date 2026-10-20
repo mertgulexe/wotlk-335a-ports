@@ -29,7 +29,7 @@ These are stock copies, untouched:
 | Atlas, Atlas_Battlegrounds, Atlas_DungeonLocs, Atlas_OutdoorRaids, Atlas_Transportation | Dan Gilbert and the Atlas team |
 | AtlasLoot, AtlasLootFu, AtlasLoot_BurningCrusade, AtlasLoot_Crafting, AtlasLoot_OriginalWoW, AtlasLoot_WorldEvents, AtlasLoot_WrathoftheLichKing | Hegarol and the AtlasLoot team |
 | GearScoreLite | Mirrikat45 & Leo |
-| LibMapData-1.0 | (no author listed) |
+| LibMapData-1.0 (library file only: no .toc, so the game doesn't load it, and no addon here uses it) | (no author listed) |
 | Postal | Xinhuan |
 | Questie-335 | Aldori and the original Questie team |
 | Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re |
@@ -43,9 +43,10 @@ This repository is the whole `World of Warcraft\Interface\AddOns` folder: clone 
 
 ```
 git clone https://github.com/mertgulexe/wotlk-335a-ports.git AddOns
+cd AddOns
 ```
 
-If you already have one, run this inside `World of Warcraft\Interface\AddOns`. Addons with the same name are replaced; other folders, including the game's `Blizzard_*` folders, are left alone:
+If you already have one, run this inside `World of Warcraft\Interface\AddOns`. Files from the repo overwrite addons with the same name. Old files they no longer use stay behind but aren't loaded; for a clean copy, delete those addon folders first. Other folders, including the game's `Blizzard_*` folders, are left alone:
 
 ```
 git init
@@ -54,13 +55,23 @@ git fetch origin main
 git checkout -f -B main origin/main
 ```
 
-**2. Copy the dungeon map patch** (enUS client), from inside the `AddOns` folder:
+If you run these again, ignore "remote origin already exists".
+
+**2. Copy the dungeon map patch** (enUS client), from inside the `AddOns` folder. In Command Prompt or PowerShell:
 
 ```
 copy "_WDM-patch\enUS\*.MPQ" "..\..\Data\enUS\"
 ```
 
-**3. Start the game.** To update later, run `git pull` in the `AddOns` folder.
+In Git Bash:
+
+```
+cp _WDM-patch/enUS/*.MPQ ../../Data/enUS/
+```
+
+Or copy the two files from `_WDM-patch\enUS` into `World of Warcraft\Data\enUS` in File Explorer.
+
+**3. Start the game.** To update later, close the game and run `git pull` in the `AddOns` folder. If the pull changes files in `_WDM-patch`, do step 2 again. If it says untracked files would be overwritten, delete the files it lists and run it again.
 
 ## Requirements
 
