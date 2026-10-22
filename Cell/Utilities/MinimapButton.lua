@@ -5,33 +5,34 @@ local F = Cell.funcs
 local LDB = LibStub("LibDataBroker-1.1")
 local LDBIcon = LibStub("LibDBIcon-1.0")
 
+local framesHidden = false
+
 local minimapButton = LDB:NewDataObject("Cell", {
     type = "launcher",
     text = "Cell",
     icon = "Interface\\AddOns\\Cell\\Media\\icon.tga",
     OnClick = function(_, button)
+        -- CellMainFrame has a "visibility" state driver (MainFrame.lua) that re-shows it,
+        -- so swap the driver instead of calling Show/Hide. Secure frame: not in combat.
         local mainFrame = Cell.frames.mainFrame
         if button == "RightButton" then
             -- the options window is a child of the main frame, bring the frames back to show it
-            if not mainFrame:IsShown() then
+            if framesHidden then
                 if InCombatLockdown() then
                     F.Print(L["Cannot show Cell frames in combat."])
                     return
                 end
-                mainFrame:Show()
+                framesHidden = false
+                RegisterStateDriver(mainFrame, "visibility", "show")
             end
             F.ShowOptionsFrame()
         elseif button == "LeftButton" then
-            -- CellMainFrame is a secure frame, it can't be shown/hidden in combat
             if InCombatLockdown() then
                 F.Print(L["Cannot toggle Cell frames in combat."])
                 return
             end
-            if mainFrame:IsShown() then
-                mainFrame:Hide()
-            else
-                mainFrame:Show()
-            end
+            framesHidden = not framesHidden
+            RegisterStateDriver(mainFrame, "visibility", framesHidden and "hide" or "show")
         end
     end,
     OnTooltipShow = function(tooltip)
