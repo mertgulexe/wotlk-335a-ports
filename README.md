@@ -17,7 +17,7 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | Attune | CixiDelmont, Yvely | **Modified** | No chat message at login. The minimap icon appears right at login instead of after the server sends quest data. |
 | AtlasQuest | Thandrenn | **Modified** | Quests you complete are ticked as finished automatically, at login and after each turn-in. Boxes you untick by hand stay unticked. |
 | Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re | **Modified** | Minimap button: right-click opens the options window, left-click hides or shows the party/raid frames (not in combat; they come back after `/reload`). |
-| TinyDPS (0.84, the last 3.3.x version) | Sideshow | **Modified** | Middle-click on the window switches between damage and healing. Resetting the data is now Ctrl + middle-click. |
+| TinyDPS (0.84, the last 3.3.x version) | Sideshow | **Modified** | Middle-click on the window switches between damage and healing. Resetting the data is now Ctrl + middle-click. When you hide the window (minimap button or `/tdps`), it stays hidden, even in combat or after `/reload`, until you show it again the same way. |
 
 ## Unmodified (backups)
 

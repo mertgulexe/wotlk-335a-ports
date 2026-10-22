@@ -1268,6 +1268,8 @@
 	end
 
 	local function visibilityEvent()
+		-- hidden by hand (minimap button or /tdps): stay hidden until shown the same way
+		if tdps.hidden then tdpsFrame:Hide() return end
 		if tdpsFrame:IsVisible() then
 			if (tdps.hidePvP and isPvpZone()) or (tdps.hideSolo and tdGroupMembers == 0) or (tdps.hideOOC and not UnitAffectingCombat('player')) then
 				tdpsFrame:Hide()
@@ -1612,8 +1614,8 @@
 		elseif lower(msg) == 'damage' then changeView('d')
 		elseif lower(msg) == 'healing' then changeView('h')
 		elseif msg == '' then
-			if tdpsFrame:IsVisible() then tdpsFrame:Hide()
-			else tdpsRefreshBars() tdpsFrame:Show() end
+			if tdpsFrame:IsVisible() then tdps.hidden = true tdpsFrame:Hide()
+			else tdps.hidden = false tdpsRefreshBars() tdpsFrame:Show() end
 		else
 			help(3)
 		end
@@ -2243,8 +2245,8 @@
 
 	tdpsButtonFrame:SetScript('OnMouseUp', function(self, button)
 		if button == 'LeftButton' then
-			if tdpsFrame:IsVisible() then tdpsFrame:Hide()
-			else tdpsRefreshBars() tdpsFrame:Show() end
+			if tdpsFrame:IsVisible() then tdps.hidden = true tdpsFrame:Hide()
+			else tdps.hidden = false tdpsRefreshBars() tdpsFrame:Show() end
 			PlaySound('gsTitleOptionExit')
 		end
 	end)
