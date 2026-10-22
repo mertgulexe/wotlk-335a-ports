@@ -5,7 +5,8 @@ local P = Cell.pixelPerfectFuncs
 
 local lastShownTab
 
-local optionsFrame = Cell.CreateFrame("CellOptionsFrame", Cell.frames.mainFrame, 432, 401)
+-- parented to CellParent (not CellMainFrame) so it can be shown while the minimap button has the unit frames hidden
+local optionsFrame = Cell.CreateFrame("CellOptionsFrame", CellParent, 432, 401)
 Cell.frames.optionsFrame = optionsFrame
 F.PixelUtil.SetPoint(optionsFrame, "CENTER", CellParent, "CENTER", 1, -1)
 optionsFrame:SetFrameStrata("DIALOG")
