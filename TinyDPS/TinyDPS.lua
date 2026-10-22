@@ -1538,7 +1538,7 @@
 		if i == 1 then
 			echo('Version ' .. GetAddOnMetadata('TinyDPS', 'Version') .. ' by Sideshow (Draenor EU)')
 		elseif i == 2 then
-			echo('Shift click to move, middle click to reset')
+			echo('Shift click to move, middle click to switch damage/healing, ctrl middle click to reset')
 			echo('Mouse back/forward shows overall data/current fight')
 		elseif i == 3 then
 			echo('Slash command: /tdps (this will toggle TinyDPS)')
@@ -1907,7 +1907,8 @@
 		dummybar:SetScript('OnMouseDown', function(self, button)
 			if button == 'LeftButton' and IsShiftKeyDown() then GameTooltip:Hide() CloseDropDownMenus() isMovingOrSizing = true tdpsAnchor:StartMoving()
 			elseif button == 'RightButton' then tdpsMenu() EasyMenu(tdpsMenuTable, tdpsDropDown, 'cursor', 0, 0, 'MENU') PlaySound('gsTitleOptionExit')
-			elseif button == 'MiddleButton' then reset()
+			elseif button == 'MiddleButton' and IsControlKeyDown() then reset()
+			elseif button == 'MiddleButton' then if tdps.view == 'd' then changeView('h') else changeView('d') end
 			elseif button == 'Button4' then changeFight('o')
 			elseif button == 'Button5' then changeFight('c') end
 		end)
@@ -2207,7 +2208,8 @@
 	tdpsFrame:SetScript('OnMouseDown', function(self, button)
 		if button == 'LeftButton' and IsShiftKeyDown() then CloseDropDownMenus() GameTooltip:Hide() isMovingOrSizing = true tdpsAnchor:StartMoving()
 		elseif button == 'RightButton' then tdpsMenu() EasyMenu(tdpsMenuTable, tdpsDropDown, 'cursor', 0, 0, 'MENU') PlaySound('gsTitleOptionExit')
-		elseif button == 'MiddleButton' then reset()
+		elseif button == 'MiddleButton' and IsControlKeyDown() then reset()
+		elseif button == 'MiddleButton' then if tdps.view == 'd' then changeView('h') else changeView('d') end
 		elseif button == 'Button4' then changeFight('o')
 		elseif button == 'Button5' then changeFight('c') end
 	end)

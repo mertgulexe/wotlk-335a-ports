@@ -16,6 +16,8 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | AuctionatorMiniFeatures | ckaotik | **Fixed** | Fixes an error at load. |
 | Attune | CixiDelmont, Yvely | **Modified** | No chat message at login. The minimap icon appears right at login instead of after the server sends quest data. |
 | AtlasQuest | Thandrenn | **Modified** | Quests you complete are ticked as finished automatically, at login and after each turn-in. Boxes you untick by hand stay unticked. |
+| Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re | **Modified** | Minimap button: right-click opens the options window, left-click hides or shows the party/raid frames (not in combat; they come back after `/reload`). |
+| TinyDPS (0.84, the last 3.3.x version) | Sideshow | **Modified** | Middle-click on the window switches between damage and healing. Resetting the data is now Ctrl + middle-click. |
 
 ## Unmodified (backups)
 
@@ -32,8 +34,6 @@ These are stock copies, untouched:
 | LibMapData-1.0 (library file only: no .toc, so the game doesn't load it, and no addon here uses it) | (no author listed) |
 | Postal | Xinhuan |
 | Questie-335 | Aldori and the original Questie team |
-| Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re |
-| TinyDPS (0.84, the last 3.3.x version) | Sideshow |
 
 ## Installing
 
