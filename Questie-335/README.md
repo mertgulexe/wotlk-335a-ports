@@ -66,20 +66,20 @@ Trust us it's (Good)!
 <img width="202" height="166" alt="image" src="https://github.com/user-attachments/assets/a44a1b5e-9bd0-49ae-9e27-b932050bd9f3" />
 
 ### Journey Log
-- Questie records the steps of your journey in the "My Journey" window. (left-click on minimap button and select the "My Journey" tab or type `/questie journey`)
+- Questie records the steps of your journey in the "My Journey" window. (Ctrl + left-click on minimap button and select the "My Journey" tab or type `/questie journey`)
 
 ![Journey](https://user-images.githubusercontent.com/8838573/67285651-3cb32f00-f4d8-11e9-95d8-e8ceb2a8d871.png)
 
 ### Quests by Zone
-- Questie lists all the quests of a zone divided between completed and available quest. Gotta complete 'em all. (left-click on minimap button (or type `/questie journey`) and select the "Quests by Zone" tab
+- Questie lists all the quests of a zone divided between completed and available quest. Gotta complete 'em all. (Ctrl + left-click on minimap button (or type `/questie journey`) and select the "Quests by Zone" tab
 
 ![QuestsByZone](https://user-images.githubusercontent.com/8838573/67285665-450b6a00-f4d8-11e9-9283-325d26c7c70d.png)
 
 ### Quests by Faction
-- Similarly to Quests by Zone, Questie lists all the quests of a faction divided between completed and available quest. Gotta complete 'em all. (left-click on minimap button (or type `/questie journey`) and select the "Quests by Faction" tab
+- Similarly to Quests by Zone, Questie lists all the quests of a faction divided between completed and available quest. Gotta complete 'em all. (Ctrl + left-click on minimap button (or type `/questie journey`) and select the "Quests by Faction" tab
 
 ### Search
-- Questie's database can be searched. (left-click on minimap button (or type `/questie journey`) and select the "Advanced Search" tab
+- Questie's database can be searched. (Ctrl + left-click on minimap button (or type `/questie journey`) and select the "Advanced Search" tab
 
 ![Search](https://user-images.githubusercontent.com/8838573/67285691-4f2d6880-f4d8-11e9-8656-b3e37dce2f05.png)
 

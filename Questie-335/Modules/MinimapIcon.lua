@@ -355,20 +355,11 @@ function _MinimapIcon:CreateDataBrokerObject()
             end
 
             if button == "LeftButton" then
-                if IsControlKeyDown() and IsShiftKeyDown() then
-                    Questie.db.profile.enabled = (not Questie.db.profile.enabled)
-                    QuestieQuest:ToggleNotes(Questie.db.profile.enabled)
-
-                    if minimapButton and minimapButton:IsMouseOver() then
-                        local onEnter = minimapButton:GetScript("OnEnter")
-                        if onEnter then
-                            GameTooltip:Hide()
-                            onEnter(minimapButton)
-                        end
-                    end
-
-                    -- Close config window if it's open to avoid desyncing the Checkbox
-                    QuestieOptions:HideFrame();
+                -- 3.3.5a port: plain left click shows/hides Questie, Ctrl + left click
+                -- toggles My Journey (upstream has these the other way round).
+                if IsControlKeyDown() then
+                    QuestieOptions:HideFrame()
+                    QuestieJourney:ToggleJourneyWindow()
                     return;
                 elseif IsShiftKeyDown() then
                     QuestieOptions:HideFrame();
@@ -384,9 +375,19 @@ function _MinimapIcon:CreateDataBrokerObject()
                     return;
                 end
 
-                QuestieOptions:HideFrame()
-                QuestieJourney:ToggleJourneyWindow()
+                Questie.db.profile.enabled = (not Questie.db.profile.enabled)
+                QuestieQuest:ToggleNotes(Questie.db.profile.enabled)
 
+                if minimapButton and minimapButton:IsMouseOver() then
+                    local onEnter = minimapButton:GetScript("OnEnter")
+                    if onEnter then
+                        GameTooltip:Hide()
+                        onEnter(minimapButton)
+                    end
+                end
+
+                -- Close config window if it's open to avoid desyncing the Checkbox
+                QuestieOptions:HideFrame();
                 return;
             elseif button == "RightButton" then
                 if IsControlKeyDown() then
@@ -408,12 +409,12 @@ function _MinimapIcon:CreateDataBrokerObject()
         OnTooltipShow = function (tooltip)
             tooltip:AddDoubleLine(Questie:Colorize("Questie", 'gold'), Questie:Colorize(QuestieLib:GetAddonVersionString(), 'gray'))
             tooltip:AddLine(" ")
-            tooltip:AddDoubleLine(Questie:Colorize(l10n('Left Click'), 'lightBlue'), Questie:Colorize(l10n('Toggle My Journey'), 'white'))
+            local toggleLabel = Questie.db.profile.enabled and l10n('Hide Questie') or l10n('Show Questie')
+            tooltip:AddDoubleLine(Questie:Colorize(l10n('Left Click'), 'lightBlue'), Questie:Colorize(toggleLabel, 'white'))
             tooltip:AddDoubleLine(Questie:Colorize(l10n('Right Click'), 'lightBlue'), Questie:Colorize(l10n('Toggle Menu'), 'white'))
             tooltip:AddDoubleLine(Questie:Colorize(l10n('Shift') .. ' + ' .. l10n('Left Click'), 'lightBlue'), Questie:Colorize(l10n('Questie Options'), 'white'))
             tooltip:AddLine(" ")
-            local toggleLabel = Questie.db.profile.enabled and l10n('Hide Questie') or l10n('Show Questie')
-            tooltip:AddDoubleLine(Questie:Colorize(l10n('Ctrl + Shift + Left Click'), 'lightBlue'), Questie:Colorize(toggleLabel, 'white'))
+            tooltip:AddDoubleLine(Questie:Colorize(l10n('Ctrl + Left Click'), 'lightBlue'), Questie:Colorize(l10n('Toggle My Journey'), 'white'))
             tooltip:AddDoubleLine(Questie:Colorize(l10n('Ctrl + Right Click'), 'lightBlue'), Questie:Colorize(l10n('Hide Minimap Button'), 'white'))
         end,
     });
