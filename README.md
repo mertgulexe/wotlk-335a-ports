@@ -18,7 +18,7 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | AtlasQuest | Thandrenn | **Modified** | Quests you complete are ticked as finished automatically, at login and after each turn-in. Boxes you untick by hand stay unticked. |
 | Cell (r279, WotLK build): raid-style party and raid frames | enderneko; WotLK build by NoM0Re | **Modified** | Minimap button: right-click opens the options window, left-click hides or shows the party/raid frames (not in combat; they come back after `/reload`). |
 | TinyDPS (0.84, the last 3.3.x version) | Sideshow | **Modified** | Middle-click on the window switches between damage and healing. Resetting the data is now Ctrl + middle-click. When you hide the window (minimap button or `/tdps`), it stays hidden, even in combat or after `/reload`, until you show it again the same way. |
-| Questie-335 | Aldori and the original Questie team | **Modified** | Minimap button: left-click hides or shows Questie, and Ctrl + left-click opens or closes the My Journey window. Shift + left-click (options), right-click (menu) and Ctrl + right-click (hide the button) are unchanged. |
+| Questie-335 | Aldori and the original Questie team | **Modified** | Minimap and world-map buttons: left-click hides or shows Questie, and Ctrl + left-click opens or closes the My Journey window. Shift + left-click (options), right-click (menu) and Ctrl + right-click (hide the minimap button) are unchanged. |
 
 ## Unmodified (backups)
 
