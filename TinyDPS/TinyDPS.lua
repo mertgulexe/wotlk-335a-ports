@@ -1137,7 +1137,7 @@
 			backdrop = {0, 0, 0, .8},
 			showMinimapButton = true,
 			onlyBossSegments = false,
-			view = 'd', fight = 'c',
+			view = 'd', fight = 'o', -- 3.3.5a port: show Overall (all fights) by default
 			maxBars = 10, spacing = 2, barHeight = 15,
 			shortDPS = false, shortDamage = false, showDPS = true, showRank = true, showDamage = true, showPercent = false,
 			font = {name = 'Interface\\AddOns\\TinyDPS\\Fonts\\Berlin Sans.ttf', size = 13, outline = 'Outline', shadowX = 0, shadowY = 0},
@@ -1549,7 +1549,7 @@
 	end
 
 	local function reset()
-		tdps.fight = 'c'
+		tdps.fight = 'o' -- 3.3.5a port: stay on Overall after a reset (upstream switched to Current)
 		foundBoss = false
 		for i=1,#bar do bar[i]:ClearAllPoints() bar[i]:Hide() end
 		tdPlayer, tdPet, tdPointer, tdFightName, bar = {}, {}, {}, {}, {}
