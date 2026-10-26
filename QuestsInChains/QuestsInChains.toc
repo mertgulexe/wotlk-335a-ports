@@ -1,0 +1,18 @@
+## Interface: 30300
+## Title: Quests in Chains
+## Notes: Shows the whole quest chain of every AtlasQuest quest: prerequisites, follow-ups and the quests they need.
+## Author: wotlk-335a-ports
+## Version: 1.0.0
+## OptionalDeps: AtlasQuest, Atlas
+## SavedVariables: QuestsInChainsDB
+
+Data.lua
+Core.lua
+Chain.lua
+UI\MainFrame.lua
+UI\ListPanel.lua
+UI\ChainGraph.lua
+UI\DetailsPanel.lua
+Integration\AtlasQuest.lua
+Integration\QuestLog.lua
+Integration\Minimap.lua

@@ -20,6 +20,12 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | TinyDPS (0.84, the last 3.3.x version) | Sideshow | **Modified** | Middle-click on the window switches between damage and healing. Resetting the data is now Ctrl + middle-click. The window shows Overall (all fights) by default and stays on it after a reset, including the automatic reset when you join a group; upstream switched back to the current fight each time. When you hide the window (minimap button or `/tdps`), it stays hidden, even in combat or after `/reload`, until you show it again the same way. |
 | Questie-335 | Aldori and the original Questie team | **Modified** | Minimap and world-map buttons: left-click hides or shows Questie, and Ctrl + left-click opens or closes the My Journey window. Shift + left-click (options), right-click (menu) and Ctrl + right-click (hide the minimap button) are unchanged. |
 
+## Made here
+
+| Addon | Status | What it does |
+|---|---|---|
+| QuestsInChains | **New**, awaiting in-game test | Shows the whole quest chain of every quest AtlasQuest lists for dungeons, raids and battlegrounds: what comes before it, what it leads to, and the quests those need. Finished, active, available and locked quests are marked from your completed quests and quest log. Open it with `/qic`, the minimap button, or the **Chain** button on AtlasQuest's quest page and in the quest log. The look follows QuestWeaver (a TBC Classic addon). The chain data is generated from Questie-335's quest database and AtlasQuest's quest lists. |
+
 ## Unmodified (backups)
 
 These are stock copies, untouched:
@@ -84,7 +90,8 @@ For other client languages, get `patch-<locale>-M.MPQ` and `patch-<locale>-N.MPQ
 
 ## Disclaimer
 
-- **I don't own any of these addons.** All credit and rights belong to their original authors, listed above, and to the creators of the font and data added to some of them. Thank you to every one of them for their work.
+- **I don't own any of these addons** (except QuestsInChains, made here). All credit and rights belong to their original authors, listed above, and to the creators of the font and data added to some of them. Thank you to every one of them for their work.
+- QuestsInChains uses quest data from Questie-335 (GPL) and AtlasQuest (GPL), and takes its look from QuestWeaver by the QuestWeaver Team; none of QuestWeaver's code or files are included.
 - The changes here are a **hobby project**, made for personal use and shared as-is, without any warranty.
 - This repository is not affiliated with or endorsed by the addon authors or Blizzard Entertainment. World of Warcraft is a trademark of Blizzard Entertainment.
 - Each addon keeps its original license, and added parts keep theirs: AtlasLootRevival's WotLK data comes from GPL-licensed sources (AtlasLoot Enhanced, Questie), and TinyPad's Roboto Mono font is under the SIL Open Font License. MinimapButtonBag-Reborn itself is public domain (Unlicense). Where an addon ships without a license, all rights remain with its author.
