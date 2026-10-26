@@ -2,7 +2,7 @@
 ## Title: Quests in Chains
 ## Notes: Shows the whole quest chain of every AtlasQuest quest: prerequisites, follow-ups and the quests they need.
 ## Author: wotlk-335a-ports
-## Version: 1.0.0
+## Version: 1.1.0
 ## OptionalDeps: AtlasQuest, Atlas
 ## SavedVariables: QuestsInChainsDB
 

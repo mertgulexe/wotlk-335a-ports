@@ -1,5 +1,5 @@
--- UI/ListPanel.lua: the left panel. Search box, instance and faction dropdowns, filters,
--- progress bar and the quest list.
+-- UI/ListPanel.lua: the left panel. Search box, instance, faction, sort and profession dropdowns,
+-- filters, progress bar and the quest list.
 local _, ns = ...
 
 local List = {}
@@ -9,9 +9,10 @@ local ROW_H = 16
 local MENU_ROW_H = 16
 local MENU_ROWS = 18
 local PANEL_W = 230
-local LIST_TOP = 144
+local LIST_TOP = 172
 local SCROLLBAR_W = 24
 local ROW_W = PANEL_W - SCROLLBAR_W
+local LEVEL_W = 40 -- the level column in front of instance names
 
 local DARK_BACKDROP = {
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -25,9 +26,9 @@ local rows = {}       -- row buttons
 local data = {}       -- rows of the current list
 local stepCache = {}  -- [filterKey][questID] = { step, steps }
 
-local COMPLETED_COLOR = { 0.25, 0.45, 0.25 }
-local ACTIVE_COLOR = { 1, 0.82, 0 }
 local NODATA_COLOR = { 0.5, 0.5, 0.5 }
+local SORT_NAMES = { aq = "AtlasQuest order", name = "Name", level = "Level" }
+local SORT_SHORT = { aq = "AtlasQuest", name = "Name", level = "Level" } -- (the button is narrow)
 
 -- ---------------------------------------------------------------- helpers
 local function SideKey(side) return side == "H" and "h" or "a" end
@@ -40,9 +41,14 @@ local function Label(inst, side, slot, title)
     return slot .. ". " .. title
 end
 
-local function FilterKey()
-    return ns.state.faction .. ":" .. tostring(ns.ClassBitFilter() or 0) .. ":" .. tostring(ns.RaceBitFilter() or 0)
+-- the level range of an instance, coloured by the player's level against its top
+local function LevelText(inst)
+    if not inst.lr then return "" end
+    local hi = tonumber(inst.lr:match("(%d+)%+?$")) or tonumber(inst.lr:match("^(%d+)"))
+    local r, g, b = ns.DifficultyColor(hi)
+    return ns.ColorCode(r, g, b) .. inst.lr .. "|r"
 end
+List.LevelText = LevelText
 
 function List.ClearCache()
     stepCache = {}
@@ -50,7 +56,7 @@ end
 
 -- step and number of steps of a quest under the current filters (cached)
 function List.Steps(id)
-    local key = FilterKey()
+    local key = ns.FilterKey()
     local c = stepCache[key]
     if not c then c = {} stepCache[key] = c end
     local v = c[id]
@@ -64,39 +70,102 @@ function List.Steps(id)
 end
 
 local function Matches(text, needle)
-    return text and string.find(string.lower(text), needle, 1, true) ~= nil
+    return type(text) == "string" and string.find(string.lower(text), needle, 1, true) ~= nil
 end
 
--- the rows of the current list: the selected instance, or the search matches of every instance
+-- is a quest's row shown? profession quests follow the profession filter, completed ones "Hide completed"
+local function RowShown(id)
+    if not id then return true end
+    local q = ns.quests[id]
+    if q and q.sk and not ns.ProfShown(q.sk[1]) then return false end
+    if ns.db.hideCompleted and ns.completed[id] then return false end
+    return true
+end
+
+local function SortRows(out)
+    local mode = ns.db.sort
+    if mode ~= "name" and mode ~= "level" then return out end
+    for i, r in ipairs(out) do r.order = i end
+    local function lname(r) return string.lower(r.title or "") end
+    table.sort(out, function(a, b)
+        if mode == "level" then
+            local qa, qb = a.id and ns.quests[a.id], b.id and ns.quests[b.id]
+            local la, lb = qa and (qa.lv or qa.rl) or 999, qb and (qb.lv or qb.rl) or 999
+            if la ~= lb then return la < lb end
+            local ra, rb = qa and qa.rl or 999, qb and qb.rl or 999
+            if ra ~= rb then return ra < rb end
+        end
+        local na, nb = lname(a), lname(b)
+        if na ~= nb then return na < nb end
+        return a.order < b.order
+    end)
+    return out
+end
+
+-- the rows of the current list: the selected instance, or the search matches of all the data. A
+-- search matches quest names and instance names: every AtlasQuest row of the shown side whose quest
+-- or instance matches, then the other quests of the chains (of the shown side) whose name matches.
 local function BuildData()
     local out = {}
     local st = ns.state
     local side = st.faction
-    local hide = ns.db.hideCompleted
     local needle = (st.search or ""):match("^%s*(.-)%s*$"):lower()
-    local function Add(i, inst, s)
+    local function Add(i, inst, s, search)
         local id = s[2]
-        if hide and id and ns.completed[id] then return end
-        out[#out + 1] = { inst = i, side = side, slot = s[1], id = id or false, title = s[3], label = Label(inst, side, s[1], s[3]) }
+        if not RowShown(id) then return end
+        local label = Label(inst, side, s[1], s[3])
+        out[#out + 1] = {
+            inst = i, side = side, slot = s[1], id = id or false, title = s[3], label = label,
+            display = search and (label .. " |cff888888- " .. inst.name .. "|r") or label,
+        }
     end
     if needle ~= "" then
+        local listed = {}
         for i, inst in ipairs(ns.instances) do
+            local instHit = Matches(inst.name, needle)
             for _, s in ipairs(inst[SideKey(side)] or {}) do
+                if s[2] then listed[s[2]] = true end
                 local label = Label(inst, side, s[1], s[3])
                 local plain = label:gsub("^%d+%.%s*", "")
-                if Matches(s[3], needle) or Matches(plain, needle) then Add(i, inst, s) end
+                local q = s[2] and ns.quests[s[2]]
+                if instHit or Matches(s[3], needle) or Matches(plain, needle) or (q and Matches(q.n, needle)) then
+                    Add(i, inst, s, true)
+                end
             end
+        end
+        -- quests of the chains that AtlasQuest does not list on this side
+        local extra = {}
+        for id, q in pairs(ns.quests) do
+            if not listed[id] and (q.fa == nil or q.fa == side) and Matches(q.n, needle) and RowShown(id) then
+                extra[#extra + 1] = id
+            end
+        end
+        table.sort(extra, function(a, b)
+            local na, nb = ns.quests[a].n:lower(), ns.quests[b].n:lower()
+            if na ~= nb then return na < nb end
+            return a < b
+        end)
+        for _, id in ipairs(extra) do
+            local q = ns.quests[id]
+            out[#out + 1] = {
+                side = side, id = id, title = q.n, label = q.n, chainOnly = true,
+                display = q.n .. (q.zn and (" |cff888888- " .. q.zn .. "|r") or ""),
+            }
         end
     elseif st.instance and ns.instances[st.instance] then
         local inst = ns.instances[st.instance]
-        for _, s in ipairs(inst[SideKey(side)] or {}) do Add(st.instance, inst, s) end
+        for _, s in ipairs(inst[SideKey(side)] or {}) do Add(st.instance, inst, s, false) end
     end
-    return out
+    return SortRows(out)
 end
 
+-- the same row: the same AtlasQuest slot, or the same quest for rows outside AtlasQuest's lists
 local function SameRow(a, b)
-    return a and b and a.inst == b.inst and a.side == b.side and a.slot == b.slot
+    if not (a and b) then return false end
+    if a.chainOnly or b.chainOnly then return a.chainOnly and b.chainOnly and a.id == b.id end
+    return a.inst == b.inst and a.side == b.side and a.slot == b.slot
 end
+List.SameRow = SameRow
 
 -- the row of quest `id` in the current list (the given slot first), or nil
 function List.FindRow(id, slot)
@@ -111,10 +180,11 @@ function List.FindRow(id, slot)
     return first
 end
 
--- ---------------------------------------------------------------- popup menu (instances, faction)
+-- ---------------------------------------------------------------- popup menu (instances, faction, sort, professions)
 local menu, catcher, menuScroll
 local menuRows = {}
-local menuEntries, menuPick, menuSelected = {}, nil, nil
+local menuEntries, menuPick, menuSelected, menuBuild = {}, nil, nil, nil
+local menuLevels = false -- the entries have a level column
 
 -- offset of a FauxScrollFrame after FauxScrollFrame_Update, clamped to the current item count
 -- (FauxScrollFrame_Update may reset the scroll bar, and SetMinMaxValues clamps it silently)
@@ -135,26 +205,41 @@ local function MenuUpdate()
         local e = menuEntries[offset + i]
         if e and i <= #menuEntries then
             b.entry = e
+            b.text:ClearAllPoints()
+            b.text:SetPoint("RIGHT", b, "RIGHT", -2, 0)
             if e.header then
                 b.text:SetText(e.text)
                 b.text:SetTextColor(1, 0.82, 0)
                 b.text:SetPoint("LEFT", b, "LEFT", 4, 0)
                 b.icon:Hide()
+                b.level:Hide()
                 b:Disable()
                 b.check:Hide()
             else
-                b.text:SetText(e.text)
-                b.text:SetTextColor(1, 1, 1)
+                local x = 12
+                if menuLevels then
+                    b.level:SetText(e.level or "")
+                    b.level:Show()
+                    x = x + LEVEL_W
+                else
+                    b.level:Hide()
+                end
                 if e.icon then
+                    b.icon:ClearAllPoints()
+                    b.icon:SetPoint("LEFT", b, "LEFT", x, 0)
                     b.icon:SetTexture(e.icon)
                     b.icon:Show()
-                    b.text:SetPoint("LEFT", b, "LEFT", 30, 0)
+                    x = x + 18
                 else
                     b.icon:Hide()
-                    b.text:SetPoint("LEFT", b, "LEFT", 12, 0)
                 end
+                b.text:SetPoint("LEFT", b, "LEFT", x, 0)
+                b.text:SetText(e.text)
+                b.text:SetTextColor(1, 1, 1)
                 b:Enable()
-                if e.value == menuSelected then b.check:Show() else b.check:Hide() end
+                local checked
+                if e.checked ~= nil then checked = e.checked else checked = (e.value == menuSelected) end
+                if checked then b.check:Show() else b.check:Hide() end
             end
             b:Show()
         else
@@ -216,6 +301,11 @@ local function CreateMenu()
         b.check:SetPoint("LEFT", b, "LEFT", 0, 0)
         b.check:SetTexture("Interface\\Buttons\\WHITE8X8")
         b.check:SetVertexColor(1, 0.82, 0, 1)
+        b.level = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.level:SetPoint("LEFT", b, "LEFT", 12, 0)
+        b.level:SetWidth(LEVEL_W - 4)
+        b.level:SetHeight(MENU_ROW_H)
+        b.level:SetJustifyH("LEFT")
         b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         b.text:SetPoint("LEFT", b, "LEFT", 30, 0)
         b.text:SetPoint("RIGHT", b, "RIGHT", -2, 0)
@@ -225,16 +315,44 @@ local function CreateMenu()
             local e = self.entry
             if not e or e.header then return end
             local pick = menuPick
+            if menuBuild then
+                -- a menu of check boxes: it stays open and shows the new state
+                if pick then pick(e.value) end
+                if menu:IsShown() and menuBuild then
+                    menuEntries = menuBuild()
+                    MenuUpdate()
+                end
+                return
+            end
             List.CloseMenu()
             if pick then pick(e.value) end
         end)
+        b:SetScript("OnEnter", function(self)
+            local e = self.entry
+            if not (e and e.tooltip) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            for i, line in ipairs(e.tooltip) do
+                if i == 1 then GameTooltip:AddLine(line) else GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true) end
+            end
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         menuRows[i] = b
     end
 end
 
+-- entries: a list, or (for a menu of check boxes that stays open) a function that builds it
 function List.OpenMenu(anchor, entries, pick, selected)
     if not menu then CreateMenu() end
+    if type(entries) == "function" then
+        menuBuild = entries
+        entries = entries()
+    else
+        menuBuild = nil
+    end
     menuEntries, menuPick, menuSelected = entries, pick, selected
+    menuLevels = false
+    for _, e in ipairs(entries) do if e.level then menuLevels = true end end
     local n = math.min(#entries, MENU_ROWS)
     menu:SetWidth(anchor:GetWidth())
     menu:SetHeight(n * MENU_ROW_H + 8)
@@ -259,10 +377,18 @@ end
 function List.CloseMenu()
     if menu and menu:IsShown() then menu:Hide() end
     if catcher then catcher:Hide() end
+    menuBuild = nil
 end
 hooksecurefunc("CloseMenus", List.CloseMenu)
 
 function List.MenuFrame() return menu, menuRows, catcher end
+
+local function InstanceTooltip(inst)
+    local t = { inst.name }
+    if inst.lr then t[#t + 1] = "Levels " .. inst.lr end
+    if inst.ml then t[#t + 1] = "Minimum level to enter: " .. inst.ml end
+    return t
+end
 
 local function InstanceEntries()
     local entries, lastExp = {}, nil
@@ -271,17 +397,71 @@ local function InstanceEntries()
             entries[#entries + 1] = { header = true, text = ns.EXPANSIONS[inst.exp] or ("Expansion " .. tostring(inst.exp)) }
             lastExp = inst.exp
         end
-        entries[#entries + 1] = { text = inst.name, value = i, icon = ns.KIND_ICONS[inst.kind] }
+        entries[#entries + 1] = {
+            text = inst.name, value = i, icon = ns.KIND_ICONS[inst.kind], level = LevelText(inst),
+            tooltip = InstanceTooltip(inst),
+        }
     end
     return entries
 end
 
+local function ProfessionEntries()
+    local p = ns.db.prof
+    local entries = {
+        { text = "My professions", value = "auto", checked = (p.mode == "auto" and not p.hide),
+            tooltip = { "My professions", "Show the quests of the professions this character has (read from its skills)." } },
+    }
+    for _, id in ipairs(ns.DataProfessions()) do
+        local rank = ns.playerSkills[id]
+        local text = ns.PROFESSION_NAME[id] .. (rank and (" |cff888888(" .. rank .. ")|r") or "")
+        entries[#entries + 1] = { text = text, value = id, checked = (not p.hide) and ns.ProfShown(id) }
+    end
+    entries[#entries + 1] = { text = "No profession quests", value = "none", checked = p.hide,
+        tooltip = { "No profession quests", "Hide every quest that needs a profession." } }
+    return entries
+end
+
+-- a pick in the professions menu
+local function PickProfession(v)
+    local p = ns.db.prof
+    if v == "auto" then
+        p.mode, p.hide = "auto", false
+    elseif v == "none" then
+        p.hide = not p.hide
+    else
+        if p.mode == "auto" then
+            -- switching to a hand-picked list: start from what was shown
+            local show = {}
+            for _, id in ipairs(ns.DataProfessions()) do
+                if ns.ProfShown(id) then show[id] = true end
+            end
+            p.mode, p.show = "manual", show
+        end
+        p.hide = false
+        p.show[v] = not p.show[v] or nil
+    end
+    ns.UI.FiltersChanged()
+end
+
+local function ProfessionButtonText()
+    local p = ns.db.prof
+    if p.hide then return "Professions: hidden" end
+    local names = {}
+    for _, id in ipairs(ns.DataProfessions()) do
+        if ns.ProfShown(id) then names[#names + 1] = ns.PROFESSION_NAME[id] end
+    end
+    if p.mode == "auto" then
+        return "Professions: mine" .. (#names > 0 and (" (" .. table.concat(names, ", ") .. ")") or "")
+    end
+    return "Professions: " .. (#names > 0 and table.concat(names, ", ") or "none")
+end
+
 -- ---------------------------------------------------------------- dropdown buttons
-local function CreateDropdown(parent, y)
+local function CreateDropdown(parent, y, x0, x1)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(24)
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
-    b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, y)
+    b:SetPoint("TOPLEFT", parent, "TOPLEFT", x0 or 0, y)
+    if x1 then b:SetPoint("TOPRIGHT", parent, "TOPLEFT", x1, y) else b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, y) end
     b:SetBackdrop(DARK_BACKDROP)
     b:SetBackdropColor(0.08, 0.08, 0.08, 0.9)
     b:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
@@ -293,7 +473,7 @@ local function CreateDropdown(parent, y)
     b.icon:SetPoint("LEFT", b, "LEFT", 6, 0)
     b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     b.text:SetPoint("LEFT", b, "LEFT", 24, 0)
-    b.text:SetPoint("RIGHT", b, "RIGHT", -24, 0)
+    b.text:SetPoint("RIGHT", b, "RIGHT", -20, 0)
     b.text:SetHeight(14)
     b.text:SetJustifyH("LEFT")
     b.arrow = b:CreateTexture(nil, "OVERLAY")
@@ -305,12 +485,22 @@ local function CreateDropdown(parent, y)
     return b
 end
 
+local function SimpleTooltip(frame, title, text)
+    frame:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(title)
+        GameTooltip:AddLine(text, 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
 -- ---------------------------------------------------------------- list rows
 local function RowTooltip(self)
     local r = self.data
     if not r then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    local inst = ns.instances[r.inst]
+    local inst = r.inst and ns.instances[r.inst]
     if not (r.id and ns.quests[r.id]) then
         GameTooltip:AddLine(r.label, 0.7, 0.7, 0.7)
         GameTooltip:AddLine("No chain data: this quest is not in the quest database", 1, 0.3, 0.3, true)
@@ -320,11 +510,16 @@ local function RowTooltip(self)
     end
     local q = ns.quests[r.id]
     local st = ns.Status(r.id)
-    GameTooltip:AddLine(q.n, 1, 1, 1)
+    GameTooltip:AddLine(q.n, ns.QuestColor(r.id, st))
     local lv = q.lv and tostring(q.lv) or "scaling"
     GameTooltip:AddLine("Level " .. lv .. (q.rl and (" (requires " .. q.rl .. ")") or ""), ns.DifficultyColor(q.lv))
     local c = ns.STATUS_COLOR[st]
     GameTooltip:AddLine("Status: " .. ns.STATUS_TEXT[st], c[1], c[2], c[3])
+    if q.dy or q.wk then GameTooltip:AddLine(q.wk and "Weekly" or "Daily", ns.QUEST_COLORS.daily[1], ns.QUEST_COLORS.daily[2], ns.QUEST_COLORS.daily[3]) end
+    if q.sk then
+        local pc = ns.QUEST_COLORS.profession
+        GameTooltip:AddLine("Requires " .. (ns.PROFESSION_NAME[q.sk[1]] or ("skill " .. q.sk[1])) .. (q.sk[2] > 0 and (" (" .. q.sk[2] .. ")") or ""), pc[1], pc[2], pc[3])
+    end
     if q.zn then GameTooltip:AddLine("Zone: " .. q.zn, 0.4, 0.8, 0.4) end
     local step, steps = List.Steps(r.id)
     if step and steps > 1 then GameTooltip:AddLine("Step " .. step .. " of " .. steps, 0.8, 0.8, 0.8) end
@@ -367,21 +562,21 @@ end
 
 local function RowColor(r)
     if not (r.id and ns.quests[r.id]) then return NODATA_COLOR[1], NODATA_COLOR[2], NODATA_COLOR[3] end
-    if ns.completed[r.id] then return COMPLETED_COLOR[1], COMPLETED_COLOR[2], COMPLETED_COLOR[3] end
-    if ns.active[r.id] then return ACTIVE_COLOR[1], ACTIVE_COLOR[2], ACTIVE_COLOR[3] end
-    return ns.DifficultyColor(ns.quests[r.id].lv)
+    local cr, cg, cb = ns.QuestColor(r.id)
+    return cr, cg, cb
 end
+List.RowColor = RowColor
 
 local function UpdateRows()
     FauxScrollFrame_Update(panel.scroll, #data, panel.numRows, ROW_H)
     local offset = ClampedOffset(panel.scroll, #data, panel.numRows)
     local sel = ns.state.row
-    for i = 1, panel.numRows do
+    for i = 1, #rows do
         local b = rows[i]
-        local r = data[offset + i]
+        local r = i <= panel.numRows and data[offset + i]
         if r then
             b.data = r
-            b.text:SetText(r.label)
+            b.text:SetText(r.display or r.label)
             b.text:SetTextColor(RowColor(r))
             local step, steps
             if r.id and ns.quests[r.id] then step, steps = List.Steps(r.id) end
@@ -398,7 +593,7 @@ local function UpdateRows()
         if #data == 0 then
             local st = ns.state
             local needle = (st.search or ""):match("^%s*(.-)%s*$")
-            if needle ~= "" then panel.empty:SetText("No quest matches the search")
+            if needle ~= "" then panel.empty:SetText("Nothing matches the search")
             elseif not st.instance then panel.empty:SetText("Choose an instance above")
             else panel.empty:SetText("No quests to show") end
             panel.empty:Show()
@@ -428,6 +623,8 @@ function List.ScrollToRow(r)
 end
 
 -- ---------------------------------------------------------------- progress
+-- the instance's distinct quests on the shown side that count for the character (ns.Counts: its
+-- class and race while "My class/race" is on, and the profession filter)
 local function UpdateProgress()
     local bar = panel.progress
     local st = ns.state
@@ -436,12 +633,13 @@ local function UpdateProgress()
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         bar.text:SetText("No instance")
+        panel.progressDone, panel.progressTotal = 0, 0
         return
     end
     local seen, total, done = {}, 0, 0
     for _, s in ipairs(inst[SideKey(st.faction)] or {}) do
         local id = s[2]
-        if id and not seen[id] then
+        if id and not seen[id] and ns.Counts(id, st.faction) then
             seen[id] = true
             total = total + 1
             if ns.completed[id] then done = done + 1 end
@@ -460,15 +658,19 @@ function List.SyncControls()
     local inst = st.instance and ns.instances[st.instance]
     if inst then
         panel.instButton.text:SetText(inst.name)
+        panel.instButton.level:SetText(LevelText(inst))
         panel.instButton.icon:SetTexture(ns.KIND_ICONS[inst.kind])
         panel.instButton.icon:Show()
     else
         panel.instButton.text:SetText("Choose an instance")
+        panel.instButton.level:SetText("")
         panel.instButton.icon:Hide()
     end
     panel.factionButton.text:SetText(ns.FACTION_NAMES[st.faction] or "")
     panel.factionButton.icon:SetTexture(st.faction == "H" and "Interface\\TargetingFrame\\UI-PVP-Horde" or "Interface\\TargetingFrame\\UI-PVP-Alliance")
     panel.factionButton.icon:SetTexCoord(0.05, 0.6, 0.05, 0.6)
+    panel.sortButton.text:SetText("Sort: " .. SORT_SHORT[ns.db.sort])
+    panel.profButton.text:SetText(ProfessionButtonText())
     panel.classCheck:SetChecked(ns.db.myClassOnly)
     panel.hideCheck:SetChecked(ns.db.hideCompleted)
     local text = panel.search:GetText() or ""
@@ -494,9 +696,36 @@ function List.Refresh(resetScroll)
     UpdateProgress()
 end
 
+-- the panel's height changed (the window was resized): as many rows as fit
+function List.SetHeight(panelHeight)
+    if not panel then return end
+    local n = math.max(1, math.floor((panelHeight - LIST_TOP) / ROW_H))
+    panel.numRows = n
+    for i = #rows + 1, n do
+        rows[i] = CreateRow(panel.listFrame, i)
+        rows[i]:SetFrameLevel(panel.scroll:GetFrameLevel() + 2)
+    end
+    panel.scroll:ClearAllPoints()
+    panel.scroll:SetPoint("TOPLEFT", panel.listFrame, "TOPLEFT", 0, 0)
+    panel.scroll:SetPoint("BOTTOMRIGHT", panel.listFrame, "TOPLEFT", ROW_W, -n * ROW_H)
+    UpdateRows()
+end
+
 function List.Data() return data end
 function List.Rows() return rows end
 function List.Panel() return panel end
+
+-- the colour legend, in the tooltip of the "?" button
+local function LegendTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Quest colours")
+    for _, l in ipairs(ns.LEGEND) do
+        local c = ns.QUEST_COLORS[l[1]]
+        GameTooltip:AddLine(l[2], c[1], c[2], c[3])
+    end
+    GameTooltip:AddLine("A daily, profession, class or race quest whose prerequisites are missing is shown darker.", 0.7, 0.7, 0.7, true)
+    GameTooltip:Show()
+end
 
 function List.Create(parent)
     panel = parent
@@ -507,8 +736,17 @@ function List.Create(parent)
 
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, 0)
-    label:SetText("Search quests")
+    label:SetText("Search")
     panel.searchLabel = label
+
+    local legend = CreateFrame("Button", nil, parent)
+    panel.legend = legend
+    legend:SetWidth(14)
+    legend:SetHeight(14)
+    legend:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, 2)
+    legend:SetNormalTexture("Interface\\FriendsFrame\\InformationIcon")
+    legend:SetScript("OnEnter", LegendTooltip)
+    legend:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local search = CreateFrame("EditBox", "QuestsInChainsSearchBox", parent, "InputBoxTemplate")
     panel.search = search
@@ -551,8 +789,17 @@ function List.Create(parent)
     end)
     clear:Hide()
 
+    -- the instance: its level range in front of its name
     local instButton = CreateDropdown(parent, -38)
     panel.instButton = instButton
+    instButton.level = instButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    instButton.level:SetPoint("LEFT", instButton, "LEFT", 24, 0)
+    instButton.level:SetWidth(LEVEL_W - 4)
+    instButton.level:SetHeight(14)
+    instButton.level:SetJustifyH("LEFT")
+    instButton.text:ClearAllPoints()
+    instButton.text:SetPoint("LEFT", instButton, "LEFT", 24 + LEVEL_W, 0)
+    instButton.text:SetPoint("RIGHT", instButton, "RIGHT", -20, 0)
     instButton:SetScript("OnClick", function(self)
         List.OpenMenu(self, InstanceEntries(), function(i)
             if (ns.state.search or "") ~= "" then ns.state.search = "" end
@@ -561,13 +808,18 @@ function List.Create(parent)
     end)
     instButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Instance")
+        local inst = ns.state.instance and ns.instances[ns.state.instance]
+        GameTooltip:AddLine(inst and inst.name or "Instance")
+        if inst and inst.lr then GameTooltip:AddLine("Levels " .. inst.lr, 0.8, 0.8, 0.8) end
+        if inst and inst.ml then GameTooltip:AddLine("Minimum level to enter: " .. inst.ml, 0.8, 0.8, 0.8) end
         GameTooltip:AddLine("The quests AtlasQuest lists for this instance.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     instButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local factionButton = CreateDropdown(parent, -66)
+    -- the faction (left) and the sort order (right, wider for its text)
+    local split = 95
+    local factionButton = CreateDropdown(parent, -66, 0, split)
     panel.factionButton = factionButton
     factionButton:SetScript("OnClick", function(self)
         List.OpenMenu(self, {
@@ -575,44 +827,53 @@ function List.Create(parent)
             { text = "Horde", value = "H", icon = "Interface\\TargetingFrame\\UI-PVP-Horde" },
         }, function(f) ns.UI.SetFaction(f) end, ns.state.faction)
     end)
+    local sortButton = CreateDropdown(parent, -66, split + 4)
+    panel.sortButton = sortButton
+    sortButton.icon:Hide()
+    sortButton.text:ClearAllPoints()
+    sortButton.text:SetPoint("LEFT", sortButton, "LEFT", 8, 0)
+    sortButton.text:SetPoint("RIGHT", sortButton, "RIGHT", -20, 0)
+    sortButton:SetScript("OnClick", function(self)
+        List.OpenMenu(self, {
+            { text = SORT_NAMES.aq, value = "aq" }, { text = SORT_NAMES.name, value = "name" }, { text = SORT_NAMES.level, value = "level" },
+        }, function(v) ns.UI.SetSort(v) end, ns.db.sort)
+    end)
+    SimpleTooltip(sortButton, "Sort", "The order of the list: AtlasQuest's, by quest name, or by quest level.")
+
+    -- professions: a menu of check boxes
+    local profButton = CreateDropdown(parent, -94)
+    panel.profButton = profButton
+    profButton.icon:SetTexture("Interface\\Icons\\Trade_BlackSmithing")
+    profButton:SetScript("OnClick", function(self)
+        List.OpenMenu(self, ProfessionEntries, PickProfession, nil)
+    end)
+    SimpleTooltip(profButton, "Professions", "Which profession quests the list and the chains show: your character's professions, the ones you pick, or none.")
 
     local classCheck = CreateFrame("CheckButton", "QuestsInChainsMyClassCheck", parent, "UICheckButtonTemplate")
     panel.classCheck = classCheck
     classCheck:SetWidth(24)
     classCheck:SetHeight(24)
-    classCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, -93)
+    classCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, -121)
     _G[classCheck:GetName() .. "Text"]:SetText("My class/race")
     classCheck:SetHitRectInsets(0, -80, 0, 0)
     classCheck:SetScript("OnClick", function(self) ns.UI.SetMyClassOnly(self:GetChecked() and true or false) end)
-    classCheck:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("My class/race")
-        GameTooltip:AddLine("Hide the quests of other classes in the chain, and on your own faction's side the quests of other races.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    classCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    SimpleTooltip(classCheck, "My class/race", "Hide the quests of other classes in the chain, and on your own faction's side the quests of other races. The progress bar then counts only your character's quests.")
 
     local hideCheck = CreateFrame("CheckButton", "QuestsInChainsHideCompletedCheck", parent, "UICheckButtonTemplate")
     panel.hideCheck = hideCheck
     hideCheck:SetWidth(24)
     hideCheck:SetHeight(24)
-    hideCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 112, -93)
+    hideCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 112, -121)
     _G[hideCheck:GetName() .. "Text"]:SetText("Hide completed")
     hideCheck:SetHitRectInsets(0, -90, 0, 0)
     hideCheck:SetScript("OnClick", function(self) ns.UI.SetHideCompleted(self:GetChecked() and true or false) end)
-    hideCheck:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Hide completed")
-        GameTooltip:AddLine("Leave the completed quests out of the list.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    hideCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    SimpleTooltip(hideCheck, "Hide completed", "Leave the completed quests out of the list.")
 
     local progress = CreateFrame("StatusBar", nil, parent)
     panel.progress = progress
     progress:SetHeight(14)
-    progress:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, -122)
-    progress:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, -122)
+    progress:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, -150)
+    progress:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, -150)
     progress:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     progress:SetStatusBarColor(0.25, 0.6, 0.25)
     progress:SetMinMaxValues(0, 1)
@@ -630,12 +891,8 @@ function List.Create(parent)
     listFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -LIST_TOP)
     listFrame:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
     listFrame:EnableMouseWheel(true)
-    local height = (ns.UI.panelHeight or 524) - LIST_TOP
-    panel.numRows = math.floor(height / ROW_H)
     local scroll = CreateFrame("ScrollFrame", "QuestsInChainsListScroll", listFrame, "FauxScrollFrameTemplate")
     panel.scroll = scroll
-    scroll:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 0, 0)
-    scroll:SetPoint("BOTTOMRIGHT", listFrame, "TOPLEFT", ROW_W, -panel.numRows * ROW_H)
     scroll:SetScript("OnVerticalScroll", function(self, offset)
         FauxScrollFrame_OnVerticalScroll(self, offset, ROW_H, UpdateRows)
     end)
@@ -644,13 +901,10 @@ function List.Create(parent)
         local bar = _G[scroll:GetName() .. "ScrollBar"]
         bar:SetValue(bar:GetValue() - delta * ROW_H * 3)
     end)
-    for i = 1, panel.numRows do
-        rows[i] = CreateRow(listFrame, i)
-        rows[i]:SetFrameLevel(scroll:GetFrameLevel() + 2)
-    end
     panel.empty = listFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.empty:SetPoint("TOP", listFrame, "TOP", -SCROLLBAR_W / 2, -20)
     panel.empty:Hide()
+    List.SetHeight(ns.UI.panelHeight or 524)
 
     List.SyncControls()
 end

@@ -41,6 +41,7 @@ local ICONS = {
     unavailable = "Interface\\RaidFrame\\ReadyCheck-NotReady",
     otherclass = "Interface\\GossipFrame\\AvailableQuestIcon",
     otherrace = "Interface\\GossipFrame\\AvailableQuestIcon",
+    otherprof = "Interface\\GossipFrame\\AvailableQuestIcon",
 }
 Graph.ICONS = ICONS
 local ARROW_TEXTURE = "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up"
@@ -64,7 +65,7 @@ function Graph.StatusLook(status, lv)
         return ICONS.available, false, 1, { dr, dg, db, 0.15 }, { dr, dg, db, 0.6 }
     elseif status == "unavailable" then
         return ICONS.unavailable, false, 1, { 0.1, 0.1, 0.1, 0.5 }, { 0.5, 0.2, 0.2, 1 }
-    elseif status == "otherclass" or status == "otherrace" then
+    elseif status == "otherclass" or status == "otherrace" or status == "otherprof" then
         return ICONS[status], true, 1, { 0.1, 0.1, 0.1, 0.5 }, { 0.5, 0.2, 0.2, 1 }
     end
     return ICONS.locked, true, 0.6, { 0.1, 0.1, 0.1, 0.5 }, { 0.35, 0.35, 0.35, 1 }
@@ -102,7 +103,13 @@ function Graph.CardTooltip(self)
     local q = ns.quests[n.id]
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local c = ns.STATUS_COLOR[n.status] or ns.STATUS_COLOR.locked
-    GameTooltip:AddDoubleLine(q.n, ns.STATUS_TEXT[n.status] or "", 1, 1, 1, c[1], c[2], c[3])
+    local nr, ng, nb = ns.QuestColor(n.id, n.status)
+    GameTooltip:AddDoubleLine(q.n, ns.STATUS_TEXT[n.status] or "", nr, ng, nb, c[1], c[2], c[3])
+    local dc, pc = ns.QUEST_COLORS.daily, ns.QUEST_COLORS.profession
+    if q.dy or q.wk then GameTooltip:AddLine(q.wk and "Weekly" or "Daily", dc[1], dc[2], dc[3]) end
+    if q.sk then
+        GameTooltip:AddLine("Requires " .. (ns.PROFESSION_NAME[q.sk[1]] or ("skill " .. q.sk[1])) .. (q.sk[2] > 0 and (" (" .. q.sk[2] .. ")") or ""), pc[1], pc[2], pc[3])
+    end
     if graph then GameTooltip:AddLine("Step " .. n.step .. " of " .. graph.steps, 0.8, 0.8, 0.8) end
     if n.oneCount then GameTooltip:AddLine("Requires one of " .. n.oneCount, 0.35, 0.6, 1) end
     if n.leadCount then
@@ -261,6 +268,21 @@ end
 function Graph.GetScroll() return scrollX, scrollY end
 function Graph.ViewSize() return viewW, viewH end
 
+-- the window was resized: the view (the middle panel) has a new size
+function Graph.SetViewSize(w, h)
+    w, h = math.max(1, math.floor(w)), math.max(1, math.floor(h))
+    if w == viewW and h == viewH then return end
+    viewW, viewH = w, h
+    if child then
+        child:SetWidth(viewW)
+        child:SetHeight(viewH)
+    end
+    if graph then
+        originX = graph.width < viewW and math.floor((viewW - graph.width) / 2) or 0
+        Apply()
+    end
+end
+
 local function CenterOn(id)
     local n = graph and graph.byId[id]
     if not n then return end
@@ -297,7 +319,7 @@ end
 -- quests the player cannot (or no longer) do are left out of the totals; quests that exclude each
 -- other (ex) count as one, done when one of them is done, and an open choice between them adds no
 -- reputation (it isn't known which one the player will take)
-local LEFT_OUT = { unavailable = true, otherclass = true, otherrace = true }
+local LEFT_OUT = ns.CANNOT
 function Graph.Totals(g)
     local nodes, root = {}, {}
     for _, n in ipairs(g.nodes) do
@@ -428,8 +450,7 @@ local function PaintCard(b, n)
         b.selected:Hide()
     end
     b.name:SetText(q.n)
-    local bright = n.status == "completed" or n.status == "active" or n.status == "available"
-    if bright then b.name:SetTextColor(1, 1, 1) else b.name:SetTextColor(0.6, 0.6, 0.6) end
+    b.name:SetTextColor(ns.QuestColor(n.id, n.status))
     b.zone:ClearAllPoints()
     local zoneIcon = q.zk and ns.ZONE_KIND_ICONS[q.zk]
     if zoneIcon then

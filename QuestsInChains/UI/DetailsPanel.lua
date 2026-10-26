@@ -117,8 +117,7 @@ local function QuestRow(id)
     StatusIcon(b.icon, st)
     local lv = q.lv and ("[" .. q.lv .. "] ") or ""
     b.text:SetText(lv .. q.n)
-    local bright = st == "completed" or st == "active" or st == "available"
-    if bright then b.text:SetTextColor(1, 1, 1) else b.text:SetTextColor(0.6, 0.6, 0.6) end
+    b.text:SetTextColor(ns.QuestColor(id, st))
     b:Show()
     y = y + 15
     Details.questRows[#Details.questRows + 1] = b
@@ -255,7 +254,7 @@ end
 function Details.SlotFor(id)
     local st = ns.state
     local r = st.row
-    if r and r.id == id then return r.inst, r.side, r.slot end
+    if r and r.id == id and r.inst then return r.inst, r.side, r.slot end
     local slots = ns.SlotsOf(id) or {}
     for _, s in ipairs(slots) do
         if s.inst == st.instance and s.side == st.faction then return s.inst, s.side, s.slot end
@@ -327,7 +326,7 @@ function Details.Clear()
     if not box then return end
     Reset()
     Text("Select a quest to see its details", "GameFontHighlightSmall", 0.6, 0.6, 0.6)
-    Details.shown = nil
+    Details.shown, Details.slotRow = nil, nil
     Finish()
 end
 
@@ -336,10 +335,10 @@ function Details.Show(id)
     local q = ns.quests[id]
     if not q then Details.Clear() return end
     Reset()
-    Details.shown = id
+    Details.shown, Details.slotRow = id, nil
     local g = ns.state.graph
     local node = g and g.byId[id]
-    Text(q.n, "GameFontNormalLarge", 1, 0.82, 0)
+    Text(q.n, "GameFontNormalLarge", ns.QuestColor(id))
     Text("Quest ID: " .. id, "GameFontHighlightSmall", 0.6, 0.6, 0.6)
     local lv = q.lv and tostring(q.lv) or "scaling"
     Text("Level " .. lv .. (q.rl and (" (requires " .. q.rl .. ")") or ""), "GameFontHighlightSmall", ns.DifficultyColor(q.lv))
@@ -357,7 +356,16 @@ function Details.Show(id)
     if cls then Text("Class: " .. cls, "GameFontHighlightSmall", 1, 0.5, 0.25) end
     local race = ns.RaceText(q.rc)
     if race then Text("Race: " .. race, "GameFontHighlightSmall", 1, 0.5, 0.25) end
-    if q.rp then Text("Repeatable", "GameFontHighlightSmall", 0.6, 0.8, 1) end
+    local dc, pc = ns.QUEST_COLORS.daily, ns.QUEST_COLORS.profession
+    if q.dy then Text("Daily", "GameFontHighlightSmall", dc[1], dc[2], dc[3])
+    elseif q.wk then Text("Weekly", "GameFontHighlightSmall", dc[1], dc[2], dc[3])
+    elseif q.rp then Text("Repeatable", "GameFontHighlightSmall", 0.6, 0.8, 1) end
+    if q.sk then
+        local name = ns.PROFESSION_NAME[q.sk[1]] or ("skill " .. q.sk[1])
+        local have = ns.skillsKnown and ns.playerSkills[q.sk[1]]
+        Text("Requires " .. name .. (q.sk[2] > 0 and (" (" .. q.sk[2] .. ")") or "")
+            .. (ns.skillsKnown and (have and (", you have " .. have) or ", you don't have it") or ""), "GameFontHighlightSmall", pc[1], pc[2], pc[3])
+    end
     local start, finish = PlaceText(q.st), PlaceText(q.en)
     if start then Text("Start: " .. start, "GameFontHighlightSmall", 1, 1, 1) end
     if finish then Text("End: " .. finish, "GameFontHighlightSmall", 1, 1, 1) end
@@ -400,7 +408,7 @@ function Details.ShowSlot(row)
     if not box then return end
     if not row then Details.Clear() return end
     Reset()
-    Details.shown = nil
+    Details.shown, Details.slotRow = nil, row
     Text(row.title or row.label or "?", "GameFontNormalLarge", 0.7, 0.7, 0.7)
     Text("No chain data: this quest is not in the quest database", "GameFontHighlightSmall", 1, 0.3, 0.3)
     local inst = ns.instances[row.inst]
@@ -411,6 +419,28 @@ function Details.ShowSlot(row)
 end
 
 function Details.Frames() return box, scroll, content end
+function Details.Width() return W end
+
+-- the window was resized: the right panel is rightWidth wide and panelHeight high. The text is laid
+-- out again for the new width only when `relayout` is set (the size grip was released).
+function Details.SetSize(rightWidth, panelHeight, relayout)
+    if not box then return end
+    Details.viewH = panelHeight - 16
+    local w = math.max(100, math.floor(rightWidth - 36))
+    if relayout and w ~= W then
+        W = w
+        content:SetWidth(W)
+        if Details.shown and ns.quests[Details.shown] then
+            Details.Show(Details.shown)
+        elseif Details.slotRow then
+            Details.ShowSlot(Details.slotRow)
+        else
+            Details.Clear()
+        end
+    else
+        Cull()
+    end
+end
 
 function Details.Create(parent)
     box = CreateFrame("Frame", nil, parent)

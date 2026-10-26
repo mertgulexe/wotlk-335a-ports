@@ -41,6 +41,42 @@ function UI.RestorePosition()
     end
 end
 
+-- ---------------------------------------------------------------- size
+-- The window grows to the right and down: the left and middle panels keep their widths, the right
+-- panel (the details) takes the extra width, and every panel takes the extra height.
+local function PanelHeight() return math.floor((frame:GetHeight() or FRAME_H) - TOP - PAD + 0.5) end
+local function RightWidth()
+    return math.floor((frame:GetWidth() or FRAME_W) - PAD - LEFT_W - PAD - MID_W - PAD - PAD + 0.5)
+end
+UI.RightWidth = RightWidth
+
+-- lay the panels out for the window's size; full: also lay the details text out again (on
+-- release of the size grip, not on every frame of the drag)
+function UI.Layout(full)
+    if not frame or UI.laying then return end
+    UI.laying = true
+    local ph = PanelHeight()
+    UI.panelHeight = ph
+    ns.List.SetHeight(ph)
+    ns.Graph.SetViewSize(MID_W - 4, ph - 4)
+    ns.Details.SetSize(RightWidth(), ph, full)
+    UI.laying = false
+end
+
+function UI.SaveSize()
+    if not frame then return end
+    local w, h = math.floor(frame:GetWidth() + 0.5), math.floor(frame:GetHeight() + 0.5)
+    if w <= FRAME_W and h <= FRAME_H then ns.db.size = nil else ns.db.size = { w = w, h = h } end
+end
+
+function UI.RestoreSize()
+    if not frame then return end
+    local s = ns.db.size
+    frame:SetWidth(s and s.w or FRAME_W)
+    frame:SetHeight(s and s.h or FRAME_H)
+    UI.Layout(true)
+end
+
 -- ---------------------------------------------------------------- window
 function UI.Create()
     if frame then return frame end
@@ -55,6 +91,8 @@ function UI.Create()
     frame:EnableMouse(true)
     frame:SetBackdrop(WINDOW_BACKDROP)
     frame:SetBackdropColor(0.06, 0.06, 0.06, 0.92)
+    frame:SetResizable(true)
+    frame:SetMinResize(FRAME_W, FRAME_H)
     frame:Hide()
     tinsert(UISpecialFrames, "QuestsInChainsFrame")
 
@@ -111,9 +149,62 @@ function UI.Create()
     ns.Graph.Create(mid)
     ns.Details.Create(right)
 
+    -- the size grip (bottom right): drag it to make the details panel wider and every panel taller
+    local grip = CreateFrame("Button", nil, frame)
+    UI.sizeGrip = grip
+    grip:SetWidth(16)
+    grip:SetHeight(16)
+    grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -3, 3)
+    grip:SetFrameLevel(frame:GetFrameLevel() + 10)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" then return end
+        -- at most the screen
+        frame:SetMaxResize(math.max(FRAME_W, math.floor(UIParent:GetWidth())), math.max(FRAME_H, math.floor(UIParent:GetHeight())))
+        -- keep the top left corner where it is: anchor it there before the sizing starts
+        local l, t = frame:GetLeft(), frame:GetTop()
+        if l and t then
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+        end
+        UI.sizing = true
+        frame:StartSizing("BOTTOMRIGHT")
+    end)
+    grip:SetScript("OnMouseUp", function()
+        if not UI.sizing then return end
+        UI.sizing = false
+        frame:StopMovingOrSizing()
+        frame:SetUserPlaced(false)
+        UI.SavePosition()
+        UI.SaveSize()
+        UI.Layout(true)
+    end)
+    grip:SetScript("OnHide", function()
+        if UI.sizing then
+            UI.sizing = false
+            frame:StopMovingOrSizing()
+            frame:SetUserPlaced(false)
+            UI.SavePosition()
+            UI.SaveSize()
+            UI.Layout(true)
+        end
+    end)
+    grip:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Resize")
+        GameTooltip:AddLine("Drag to make the details panel wider and the window taller. /qic reset restores the size.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- while the grip is dragged: the list, the graph and the details' height follow at once
+    frame:SetScript("OnSizeChanged", function() UI.Layout(not UI.sizing) end)
+
     frame:SetScript("OnShow", UI.OnShow)
     frame:SetScript("OnHide", UI.OnHide)
     UI.RestorePosition()
+    UI.RestoreSize()
     UI.dirty = true
     return frame
 end
@@ -170,6 +261,20 @@ end
 function UI.SetHideCompleted(v)
     ns.db.hideCompleted = v and true or false
     ns.List.Refresh(true)
+end
+
+function UI.SetSort(v)
+    if v ~= "aq" and v ~= "name" and v ~= "level" then return end
+    ns.db.sort = v
+    ns.List.Refresh(true)
+    ns.List.ScrollToRow(ns.state.row)
+end
+
+-- the profession filter changed: the list, its progress and the graph follow
+function UI.FiltersChanged()
+    ns.List.ClearCache()
+    ns.List.Refresh()
+    if ns.state.root then UI.ShowChain(ns.state.root, ns.state.selected) end
 end
 
 -- build and show the graph of `root`, with `selected` (default: root) selected
@@ -289,6 +394,7 @@ ns.On("LEVEL", Changed)
 ns.On("RESET", function()
     if not frame then return end
     UI.RestorePosition()
+    UI.RestoreSize()
     ns.state.search = ""
     Changed()
 end)
