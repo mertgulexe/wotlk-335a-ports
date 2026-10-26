@@ -41,7 +41,6 @@ local ICONS = {
     unavailable = "Interface\\RaidFrame\\ReadyCheck-NotReady",
     otherclass = "Interface\\GossipFrame\\AvailableQuestIcon",
     otherrace = "Interface\\GossipFrame\\AvailableQuestIcon",
-    otherprof = "Interface\\GossipFrame\\AvailableQuestIcon",
 }
 Graph.ICONS = ICONS
 local ARROW_TEXTURE = "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up"
@@ -65,7 +64,7 @@ function Graph.StatusLook(status, lv)
         return ICONS.available, false, 1, { dr, dg, db, 0.15 }, { dr, dg, db, 0.6 }
     elseif status == "unavailable" then
         return ICONS.unavailable, false, 1, { 0.1, 0.1, 0.1, 0.5 }, { 0.5, 0.2, 0.2, 1 }
-    elseif status == "otherclass" or status == "otherrace" or status == "otherprof" then
+    elseif status == "otherclass" or status == "otherrace" then
         return ICONS[status], true, 1, { 0.1, 0.1, 0.1, 0.5 }, { 0.5, 0.2, 0.2, 1 }
     end
     return ICONS.locked, true, 0.6, { 0.1, 0.1, 0.1, 0.5 }, { 0.35, 0.35, 0.35, 1 }

@@ -38,27 +38,22 @@ ns.ZONE_KIND_ICONS = { d = ns.KIND_ICONS.dungeon, r = ns.KIND_ICONS.raid, b = ns
 ns.STATUS_TEXT = {
     completed = "Completed", active = "In quest log", available = "Available", locked = "Locked",
     unavailable = "Unavailable", otherclass = "Other class", otherrace = "Other race",
-    otherprof = "Other profession", lowskill = "Skill too low",
 }
 ns.STATUS_COLOR = {
     completed = { 0.25, 0.75, 0.25 }, active = { 1, 0.82, 0 }, available = { 1, 1, 1 },
     locked = { 0.6, 0.6, 0.6 }, unavailable = { 0.85, 0.3, 0.3 }, otherclass = { 0.85, 0.3, 0.3 },
-    otherrace = { 0.85, 0.3, 0.3 }, otherprof = { 0.85, 0.3, 0.3 }, lowskill = { 0.6, 0.6, 0.6 },
+    otherrace = { 0.85, 0.3, 0.3 },
 }
 -- statuses of quests the player cannot do (now or any more)
-ns.CANNOT = { unavailable = true, otherclass = true, otherrace = true, otherprof = true }
+ns.CANNOT = { unavailable = true, otherclass = true, otherrace = true }
 
--- the professions (and Riding) that quests can require: Questie's skill line IDs, enUS names, and a
--- spell whose name is the skill's name in the client's language
-ns.PROFESSIONS = {
-    { 171, "Alchemy", 2259 }, { 164, "Blacksmithing", 2018 }, { 333, "Enchanting", 7411 },
-    { 202, "Engineering", 4036 }, { 182, "Herbalism" }, { 773, "Inscription", 45357 },
-    { 755, "Jewelcrafting", 25229 }, { 165, "Leatherworking", 2108 }, { 186, "Mining", 2575 },
-    { 393, "Skinning", 8613 }, { 197, "Tailoring", 3908 }, { 185, "Cooking", 2550 },
-    { 129, "First Aid", 3273 }, { 356, "Fishing", 7620 }, { 762, "Riding" },
+-- the names of the skills (professions and Riding) that quests can require (Questie's skill line
+-- IDs), for the "Requires ..." lines
+ns.PROFESSION_NAME = {
+    [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering", [182] = "Herbalism",
+    [773] = "Inscription", [755] = "Jewelcrafting", [165] = "Leatherworking", [186] = "Mining", [393] = "Skinning",
+    [197] = "Tailoring", [185] = "Cooking", [129] = "First Aid", [356] = "Fishing", [762] = "Riding",
 }
-ns.PROFESSION_NAME = {}
-for _, p in ipairs(ns.PROFESSIONS) do ns.PROFESSION_NAME[p[1]] = p[2] end
 
 -- the colour of a quest's name: in the quest log, then not for the character (any more), then what
 -- kind of quest it is (a daily stays blue when done: it can be taken again), then whether it can be
@@ -67,7 +62,7 @@ ns.QUEST_COLORS = {
     active = { 1, 0.82, 0 },           -- in the quest log
     daily = { 0.3, 0.65, 1 },          -- daily or weekly
     completed = { 0.25, 0.75, 0.25 },
-    cannot = { 0.85, 0.3, 0.3 },       -- unavailable, other class, race or profession
+    cannot = { 0.85, 0.3, 0.3 },       -- unavailable, other class or race
     profession = { 1, 0.55, 0.15 },
     class = { 0.95, 0.75, 0.45 },      -- a class quest of several classes (one class: its class colour)
     race = { 0.8, 0.5, 1 },
@@ -105,7 +100,7 @@ function ns.QuestColor(id, status)
         if cc then r, g, b = cc.r, cc.g, cc.b end
     end
     if (cat == "daily" or cat == "profession" or cat == "class" or cat == "race")
-        and (status == "locked" or status == "lowskill") then
+        and status == "locked" then
         r, g, b = r * LOCKED_DIM, g * LOCKED_DIM, b * LOCKED_DIM
     end
     return r, g, b -- (exactly three values: callers pass them on to SetTextColor and the like)
@@ -297,14 +292,6 @@ function ns.ValidateDB(db)
     if type(s) == "table" and finite(s.w) and finite(s.h) and s.w >= ns.MIN_W and s.h >= ns.MIN_H and s.w <= 4000 and s.h <= 3000 then
         out.size = { w = math.floor(s.w + 0.5), h = math.floor(s.h + 0.5) }
     end
-    -- professions: auto (the character's), or the ones picked by hand; hide = no profession quests
-    local p = type(db.prof) == "table" and db.prof or {}
-    out.prof = { mode = (p.mode == "manual") and "manual" or "auto", hide = p.hide == true, show = {} }
-    if type(p.show) == "table" then
-        for id, v in pairs(p.show) do
-            if v == true and ns.PROFESSION_NAME[id] then out.prof.show[id] = true end
-        end
-    end
     return out
 end
 
@@ -357,91 +344,7 @@ local function AnyIn(list, a, b)
     return false
 end
 
--- ---------------------------------------------------------------- the character's professions
-ns.playerSkills = {}   -- [skill line ID] = rank, from the skill lines (GetSkillLineInfo)
-ns.skillsKnown = false -- true once the professions could be read
-local skillOfName
-local function SkillNames()
-    if skillOfName then return skillOfName end
-    skillOfName = {}
-    for _, p in ipairs(ns.PROFESSIONS) do
-        skillOfName[p[2]] = p[1]
-        if p[3] then
-            -- the skill line has the name of the profession's spell in every language
-            local name = GetSpellInfo(p[3])
-            if type(name) == "string" and name ~= "" then skillOfName[name] = p[1] end
-        end
-    end
-    return skillOfName
-end
-
--- read the skill lines; a collapsed header hides its lines, so professions seen before stay then
-function ns.ScanSkills()
-    local n = tonumber((GetNumSkillLines())) or 0
-    if n <= 0 then return false end
-    local names = SkillNames()
-    local found, collapsed = {}, false
-    for i = 1, n do
-        local name, isHeader, isExpanded, rank = GetSkillLineInfo(i)
-        if isHeader then
-            if not isExpanded then collapsed = true end
-        elseif name and names[name] then
-            found[names[name]] = tonumber(rank) or 0
-        end
-    end
-    if collapsed then
-        if not ns.skillsKnown then return false end -- nothing known to keep: wait for an expanded list
-        for id, rank in pairs(ns.playerSkills) do
-            if found[id] == nil then found[id] = rank end
-        end
-    end
-    local changed = not ns.skillsKnown
-    for id, rank in pairs(found) do
-        if ns.playerSkills[id] ~= rank then changed = true end
-    end
-    for id in pairs(ns.playerSkills) do
-        if found[id] == nil then changed = true end
-    end
-    ns.playerSkills = found
-    ns.skillsKnown = true
-    if changed then
-        ns.statusVersion = ns.statusVersion + 1
-        ns.Fire("STATUS")
-    end
-    return changed
-end
-
--- are the quests of this profession shown (list, graph, progress)?
-function ns.ProfShown(skill)
-    local p = ns.db.prof
-    if p.hide then return false end
-    if p.mode == "manual" then return p.show[skill] == true end
-    if not ns.skillsKnown then return true end -- not read yet: show them all
-    return ns.playerSkills[skill] ~= nil
-end
--- the professions that have quests in the data, in the order of ns.PROFESSIONS
-function ns.DataProfessions()
-    if ns.dataProfs then return ns.dataProfs end
-    local has = {}
-    for _, q in pairs(ns.quests) do if q.sk then has[q.sk[1]] = true end end
-    local out = {}
-    for _, p in ipairs(ns.PROFESSIONS) do if has[p[1]] then out[#out + 1] = p[1] end end
-    ns.dataProfs = out
-    return out
-end
--- a short key of the profession filter (for caches)
-function ns.ProfFilterKey()
-    local p = ns.db.prof
-    if p.hide then return "none" end
-    local ids = {}
-    for _, id in ipairs(ns.DataProfessions()) do
-        if ns.ProfShown(id) then ids[#ids + 1] = id end
-    end
-    return p.mode .. ":" .. table.concat(ids, ",")
-end
-
--- completed, active, otherclass, otherrace, otherprof, unavailable, lowskill, available or locked
--- (checked in this order).
+-- completed, active, otherclass, otherrace, unavailable, available or locked (checked in this order).
 -- The rules follow Questie's IsDoable (Database/QuestieDB.lua):
 -- - unavailable: an exclusive quest (ex, xo), the next quest in the chain (nx) or the target of a
 --   breadcrumb (bf) is completed or in the quest log;
@@ -461,18 +364,10 @@ function ns.Status(id, faction)
     local cb, rb = ns.playerClassBit, ns.playerRaceBit
     if q.cl and cb and band(q.cl, cb) == 0 then return "otherclass" end
     if q.rc and rb and faction == ns.playerFaction and band(q.rc, rb) == 0 then return "otherrace" end
-    -- a profession (or Riding) quest: the character must have the skill, at the rank it needs
-    local lowSkill = false
-    if q.sk and ns.skillsKnown then
-        local rank = ns.playerSkills[q.sk[1]]
-        if not rank then return "otherprof" end
-        lowSkill = rank < (q.sk[2] or 0)
-    end
     if AnyIn(q.ex, completed, active) or AnyIn(q.xo, completed, active)
         or AnyIn(q.nx, completed, active) or AnyIn(q.bf, completed, active) then
         return "unavailable"
     end
-    if lowSkill then return "lowskill" end
     if q.one then
         local any = false
         for _, p in ipairs(q.one) do
@@ -517,7 +412,6 @@ function ns.ChainOpts(faction)
         faction = faction,
         classBit = ns.ClassBitFilter(),
         raceBit = ns.RaceBitFilter(faction),
-        skillOk = ns.ProfShown,
         status = function(id) return ns.Status(id, faction) end,
     }
 end
@@ -525,10 +419,9 @@ end
 function ns.FilterKey(faction)
     faction = faction or ns.state.faction
     return faction .. ":" .. tostring(ns.ClassBitFilter() or 0) .. ":" .. tostring(ns.RaceBitFilter(faction) or 0)
-        .. ":" .. ns.ProfFilterKey()
 end
--- does a quest count for the character under the current filters (the list's progress bar)? The
--- class and race only while "My class/race" is on; the profession filter always
+-- does a quest count for the character under the current filters (the list's progress bar)? Its
+-- class and race, while "My class/race" is on
 function ns.Counts(id, faction)
     local q = ns.quests[id]
     if not q then return false end
@@ -537,7 +430,6 @@ function ns.Counts(id, faction)
     local cb, rb = ns.ClassBitFilter(), ns.RaceBitFilter(faction)
     if cb and q.cl and band(q.cl, cb) == 0 then return false end
     if rb and q.rc and band(q.rc, rb) == 0 then return false end
-    if q.sk and not ns.ProfShown(q.sk[1]) then return false end
     return true
 end
 
@@ -668,7 +560,6 @@ events:RegisterEvent("QUEST_QUERY_COMPLETE")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("UNIT_LEVEL")
-events:RegisterEvent("SKILL_LINES_CHANGED")
 events:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == addonName then
@@ -686,11 +577,8 @@ events:SetScript("OnEvent", function(self, event, arg1)
         ns.playerRace = raceFile
         ns.playerRaceBit = ns.RACE_BITS[raceFile]
         ns.loggedIn = true
-        ns.ScanSkills()
         ns.ScanQuestLog()
         ns.Fire("LOGIN")
-    elseif event == "SKILL_LINES_CHANGED" then
-        if ns.loggedIn and not ns.Pending("scanSkills") then ns.After(0, ns.ScanSkills, "scanSkills") end
     elseif event == "QUEST_QUERY_COMPLETE" then
         OnQuestQueryComplete()
     elseif event == "QUEST_LOG_UPDATE" then
@@ -742,7 +630,6 @@ local function Slash(msg)
         ns.db.myClassOnly = true
         ns.db.hideCompleted = false
         ns.db.sort = "aq"
-        ns.db.prof = { mode = "auto", hide = false, show = {} }
         ns.Fire("RESET")
         ns.Print("window position, size, sorting and filters reset.")
     else

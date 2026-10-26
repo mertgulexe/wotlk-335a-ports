@@ -270,11 +270,11 @@ function UI.SetSort(v)
     ns.List.ScrollToRow(ns.state.row)
 end
 
--- the profession filter changed: the list, its progress and the graph follow
-function UI.FiltersChanged()
-    ns.List.ClearCache()
-    ns.List.Refresh()
-    if ns.state.root then UI.ShowChain(ns.state.root, ns.state.selected) end
+-- a click on an instance in the search results: the search ends and the instance's quests show
+function UI.OpenInstance(index)
+    if not (index and ns.instances[index]) then return end
+    ns.state.search = ""
+    UI.SetInstance(index)
 end
 
 -- build and show the graph of `root`, with `selected` (default: root) selected

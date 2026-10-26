@@ -362,9 +362,7 @@ function Details.Show(id)
     elseif q.rp then Text("Repeatable", "GameFontHighlightSmall", 0.6, 0.8, 1) end
     if q.sk then
         local name = ns.PROFESSION_NAME[q.sk[1]] or ("skill " .. q.sk[1])
-        local have = ns.skillsKnown and ns.playerSkills[q.sk[1]]
-        Text("Requires " .. name .. (q.sk[2] > 0 and (" (" .. q.sk[2] .. ")") or "")
-            .. (ns.skillsKnown and (have and (", you have " .. have) or ", you don't have it") or ""), "GameFontHighlightSmall", pc[1], pc[2], pc[3])
+        Text("Requires " .. name .. (q.sk[2] > 0 and (" (" .. q.sk[2] .. ")") or ""), "GameFontHighlightSmall", pc[1], pc[2], pc[3])
     end
     local start, finish = PlaceText(q.st), PlaceText(q.en)
     if start then Text("Start: " .. start, "GameFontHighlightSmall", 1, 1, 1) end

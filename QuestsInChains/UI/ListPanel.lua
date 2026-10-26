@@ -1,4 +1,4 @@
--- UI/ListPanel.lua: the left panel. Search box, instance, faction, sort and profession dropdowns,
+-- UI/ListPanel.lua: the left panel. Search box, instance, faction and sort dropdowns,
 -- filters, progress bar and the quest list.
 local _, ns = ...
 
@@ -9,7 +9,7 @@ local ROW_H = 16
 local MENU_ROW_H = 16
 local MENU_ROWS = 18
 local PANEL_W = 230
-local LIST_TOP = 172
+local LIST_TOP = 144
 local SCROLLBAR_W = 24
 local ROW_W = PANEL_W - SCROLLBAR_W
 local LEVEL_W = 40 -- the level column in front of instance names
@@ -73,38 +73,83 @@ local function Matches(text, needle)
     return type(text) == "string" and string.find(string.lower(text), needle, 1, true) ~= nil
 end
 
--- is a quest's row shown? profession quests follow the profession filter, completed ones "Hide completed"
+-- is a quest's row shown? ("Hide completed")
 local function RowShown(id)
     if not id then return true end
-    local q = ns.quests[id]
-    if q and q.sk and not ns.ProfShown(q.sk[1]) then return false end
     if ns.db.hideCompleted and ns.completed[id] then return false end
     return true
 end
 
+-- the lowest and highest level of an instance's range ("16-22", "80+", "70"); 999 without one
+local function LevelBounds(inst)
+    local lr = inst.lr or ""
+    local lo, hi = lr:match("^(%d+)%-(%d+)$")
+    if lo then return tonumber(lo), tonumber(hi) end
+    local one = tonumber(lr:match("^(%d+)"))
+    if one then return one, one end
+    return 999, 999
+end
+List.LevelBounds = LevelBounds
+
+-- the instances in the order of the sort mode: by expansion and kind (dungeons, raids,
+-- battlegrounds), then by name, or by level ("level": the range's lowest level, then its highest)
+local KIND_ORDER = { dungeon = 1, raid = 2, battleground = 3 }
+function List.InstanceOrder()
+    local order = {}
+    for i in ipairs(ns.instances) do order[#order + 1] = i end
+    if ns.db.sort == "level" then
+        table.sort(order, function(a, b)
+            local A, B = ns.instances[a], ns.instances[b]
+            if A.exp ~= B.exp then return A.exp < B.exp end
+            local ka, kb = KIND_ORDER[A.kind] or 9, KIND_ORDER[B.kind] or 9
+            if ka ~= kb then return ka < kb end
+            local la, ha = LevelBounds(A)
+            local lb, hb = LevelBounds(B)
+            if la ~= lb then return la < lb end
+            if ha ~= hb then return ha < hb end
+            return a < b -- (the data's order: by name)
+        end)
+    end
+    return order
+end
+
+-- quest rows by name or level; instance rows (a search's instance matches) stay first, in the
+-- order of List.InstanceOrder
 local function SortRows(out)
     local mode = ns.db.sort
-    if mode ~= "name" and mode ~= "level" then return out end
-    for i, r in ipairs(out) do r.order = i end
-    local function lname(r) return string.lower(r.title or "") end
-    table.sort(out, function(a, b)
-        if mode == "level" then
-            local qa, qb = a.id and ns.quests[a.id], b.id and ns.quests[b.id]
-            local la, lb = qa and (qa.lv or qa.rl) or 999, qb and (qb.lv or qb.rl) or 999
-            if la ~= lb then return la < lb end
-            local ra, rb = qa and qa.rl or 999, qb and qb.rl or 999
-            if ra ~= rb then return ra < rb end
-        end
-        local na, nb = lname(a), lname(b)
-        if na ~= nb then return na < nb end
-        return a.order < b.order
-    end)
-    return out
+    local insts, quests = {}, {}
+    for _, r in ipairs(out) do
+        if r.instanceRow then insts[#insts + 1] = r else quests[#quests + 1] = r end
+    end
+    if #insts > 1 then
+        local pos = {}
+        for k, i in ipairs(List.InstanceOrder()) do pos[i] = k end
+        table.sort(insts, function(a, b) return pos[a.inst] < pos[b.inst] end)
+    end
+    if mode == "name" or mode == "level" then
+        for i, r in ipairs(quests) do r.order = i end
+        local function lname(r) return string.lower(r.title or "") end
+        table.sort(quests, function(a, b)
+            if mode == "level" then
+                local qa, qb = a.id and ns.quests[a.id], b.id and ns.quests[b.id]
+                local la, lb = qa and (qa.lv or qa.rl) or 999, qb and (qb.lv or qb.rl) or 999
+                if la ~= lb then return la < lb end
+                local ra, rb = qa and qa.rl or 999, qb and qb.rl or 999
+                if ra ~= rb then return ra < rb end
+            end
+            local na, nb = lname(a), lname(b)
+            if na ~= nb then return na < nb end
+            return a.order < b.order
+        end)
+    end
+    for _, r in ipairs(quests) do insts[#insts + 1] = r end
+    return insts
 end
 
 -- the rows of the current list: the selected instance, or the search matches of all the data. A
--- search matches quest names and instance names: every AtlasQuest row of the shown side whose quest
--- or instance matches, then the other quests of the chains (of the shown side) whose name matches.
+-- search shows the instances whose name matches (a click opens the instance), then every AtlasQuest
+-- row of the shown side whose quest matches, then the other quests of the chains (of the shown side)
+-- whose name matches.
 local function BuildData()
     local out = {}
     local st = ns.state
@@ -122,13 +167,17 @@ local function BuildData()
     if needle ~= "" then
         local listed = {}
         for i, inst in ipairs(ns.instances) do
-            local instHit = Matches(inst.name, needle)
+            if Matches(inst.name, needle) then
+                local n = 0
+                for _, s in ipairs(inst[SideKey(side)] or {}) do n = n + 1 end
+                out[#out + 1] = { instanceRow = true, inst = i, side = side, title = inst.name, label = inst.name, count = n }
+            end
             for _, s in ipairs(inst[SideKey(side)] or {}) do
                 if s[2] then listed[s[2]] = true end
                 local label = Label(inst, side, s[1], s[3])
                 local plain = label:gsub("^%d+%.%s*", "")
                 local q = s[2] and ns.quests[s[2]]
-                if instHit or Matches(s[3], needle) or Matches(plain, needle) or (q and Matches(q.n, needle)) then
+                if Matches(s[3], needle) or Matches(plain, needle) or (q and Matches(q.n, needle)) then
                     Add(i, inst, s, true)
                 end
             end
@@ -159,9 +208,11 @@ local function BuildData()
     return SortRows(out)
 end
 
--- the same row: the same AtlasQuest slot, or the same quest for rows outside AtlasQuest's lists
+-- the same row: the same AtlasQuest slot, the same instance (a search's instance rows), or the same
+-- quest for rows outside AtlasQuest's lists
 local function SameRow(a, b)
     if not (a and b) then return false end
+    if a.instanceRow or b.instanceRow then return a.instanceRow and b.instanceRow and a.inst == b.inst end
     if a.chainOnly or b.chainOnly then return a.chainOnly and b.chainOnly and a.id == b.id end
     return a.inst == b.inst and a.side == b.side and a.slot == b.slot
 end
@@ -180,7 +231,7 @@ function List.FindRow(id, slot)
     return first
 end
 
--- ---------------------------------------------------------------- popup menu (instances, faction, sort, professions)
+-- ---------------------------------------------------------------- popup menu (instances, faction, sort)
 local menu, catcher, menuScroll
 local menuRows = {}
 local menuEntries, menuPick, menuSelected, menuBuild = {}, nil, nil, nil
@@ -390,9 +441,11 @@ local function InstanceTooltip(inst)
     return t
 end
 
+-- the instance menu, in the order of the sort mode (List.InstanceOrder), under expansion headers
 local function InstanceEntries()
     local entries, lastExp = {}, nil
-    for i, inst in ipairs(ns.instances) do
+    for _, i in ipairs(List.InstanceOrder()) do
+        local inst = ns.instances[i]
         if inst.exp ~= lastExp then
             entries[#entries + 1] = { header = true, text = ns.EXPANSIONS[inst.exp] or ("Expansion " .. tostring(inst.exp)) }
             lastExp = inst.exp
@@ -403,57 +456,6 @@ local function InstanceEntries()
         }
     end
     return entries
-end
-
-local function ProfessionEntries()
-    local p = ns.db.prof
-    local entries = {
-        { text = "My professions", value = "auto", checked = (p.mode == "auto" and not p.hide),
-            tooltip = { "My professions", "Show the quests of the professions this character has (read from its skills)." } },
-    }
-    for _, id in ipairs(ns.DataProfessions()) do
-        local rank = ns.playerSkills[id]
-        local text = ns.PROFESSION_NAME[id] .. (rank and (" |cff888888(" .. rank .. ")|r") or "")
-        entries[#entries + 1] = { text = text, value = id, checked = (not p.hide) and ns.ProfShown(id) }
-    end
-    entries[#entries + 1] = { text = "No profession quests", value = "none", checked = p.hide,
-        tooltip = { "No profession quests", "Hide every quest that needs a profession." } }
-    return entries
-end
-
--- a pick in the professions menu
-local function PickProfession(v)
-    local p = ns.db.prof
-    if v == "auto" then
-        p.mode, p.hide = "auto", false
-    elseif v == "none" then
-        p.hide = not p.hide
-    else
-        if p.mode == "auto" then
-            -- switching to a hand-picked list: start from what was shown
-            local show = {}
-            for _, id in ipairs(ns.DataProfessions()) do
-                if ns.ProfShown(id) then show[id] = true end
-            end
-            p.mode, p.show = "manual", show
-        end
-        p.hide = false
-        p.show[v] = not p.show[v] or nil
-    end
-    ns.UI.FiltersChanged()
-end
-
-local function ProfessionButtonText()
-    local p = ns.db.prof
-    if p.hide then return "Professions: hidden" end
-    local names = {}
-    for _, id in ipairs(ns.DataProfessions()) do
-        if ns.ProfShown(id) then names[#names + 1] = ns.PROFESSION_NAME[id] end
-    end
-    if p.mode == "auto" then
-        return "Professions: mine" .. (#names > 0 and (" (" .. table.concat(names, ", ") .. ")") or "")
-    end
-    return "Professions: " .. (#names > 0 and table.concat(names, ", ") or "none")
 end
 
 -- ---------------------------------------------------------------- dropdown buttons
@@ -501,6 +503,15 @@ local function RowTooltip(self)
     if not r then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local inst = r.inst and ns.instances[r.inst]
+    if r.instanceRow then
+        for i, line in ipairs(InstanceTooltip(inst)) do
+            if i == 1 then GameTooltip:AddLine(line, 1, 0.82, 0) else GameTooltip:AddLine(line, 0.8, 0.8, 0.8) end
+        end
+        GameTooltip:AddLine(r.count .. " quests listed by AtlasQuest", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Click to show its quests", 0.5, 0.8, 1)
+        GameTooltip:Show()
+        return
+    end
     if not (r.id and ns.quests[r.id]) then
         GameTooltip:AddLine(r.label, 0.7, 0.7, 0.7)
         GameTooltip:AddLine("No chain data: this quest is not in the quest database", 1, 0.3, 0.3, true)
@@ -552,6 +563,7 @@ local function CreateRow(parent, i)
     b:SetScript("OnClick", function(self)
         local r = self.data
         if not r then return end
+        if r.instanceRow then ns.UI.OpenInstance(r.inst) return end
         if IsShiftKeyDown() and r.id and ns.quests[r.id] and ns.InsertQuestLink(r.id) then return end
         ns.UI.SelectRow(r)
     end)
@@ -561,6 +573,7 @@ local function CreateRow(parent, i)
 end
 
 local function RowColor(r)
+    if r.instanceRow then return 1, 0.82, 0 end
     if not (r.id and ns.quests[r.id]) then return NODATA_COLOR[1], NODATA_COLOR[2], NODATA_COLOR[3] end
     local cr, cg, cb = ns.QuestColor(r.id)
     return cr, cg, cb
@@ -576,11 +589,20 @@ local function UpdateRows()
         local r = i <= panel.numRows and data[offset + i]
         if r then
             b.data = r
-            b.text:SetText(r.display or r.label)
-            b.text:SetTextColor(RowColor(r))
-            local step, steps
-            if r.id and ns.quests[r.id] then step, steps = List.Steps(r.id) end
-            if step and steps > 1 then b.steps:SetText(step .. "/" .. steps) else b.steps:SetText("") end
+            if r.instanceRow then
+                -- an instance of a search: its kind icon, level range and name; on the right, its quest count
+                local inst = ns.instances[r.inst]
+                local icon = ns.KIND_ICONS[inst.kind]
+                b.text:SetText((icon and ("|T" .. icon .. ":14:14|t ") or "") .. (inst.lr and (LevelText(inst) .. " ") or "") .. inst.name)
+                b.text:SetTextColor(RowColor(r))
+                b.steps:SetText(tostring(r.count))
+            else
+                b.text:SetText(r.display or r.label)
+                b.text:SetTextColor(RowColor(r))
+                local step, steps
+                if r.id and ns.quests[r.id] then step, steps = List.Steps(r.id) end
+                if step and steps > 1 then b.steps:SetText(step .. "/" .. steps) else b.steps:SetText("") end
+            end
             b.steps:SetTextColor(0.6, 0.6, 0.6)
             if SameRow(r, sel) then b.sel:Show() else b.sel:Hide() end
             b:Show()
@@ -624,7 +646,7 @@ end
 
 -- ---------------------------------------------------------------- progress
 -- the instance's distinct quests on the shown side that count for the character (ns.Counts: its
--- class and race while "My class/race" is on, and the profession filter)
+-- class and race while "My class/race" is on)
 local function UpdateProgress()
     local bar = panel.progress
     local st = ns.state
@@ -670,7 +692,6 @@ function List.SyncControls()
     panel.factionButton.icon:SetTexture(st.faction == "H" and "Interface\\TargetingFrame\\UI-PVP-Horde" or "Interface\\TargetingFrame\\UI-PVP-Alliance")
     panel.factionButton.icon:SetTexCoord(0.05, 0.6, 0.05, 0.6)
     panel.sortButton.text:SetText("Sort: " .. SORT_SHORT[ns.db.sort])
-    panel.profButton.text:SetText(ProfessionButtonText())
     panel.classCheck:SetChecked(ns.db.myClassOnly)
     panel.hideCheck:SetChecked(ns.db.hideCompleted)
     local text = panel.search:GetText() or ""
@@ -838,22 +859,13 @@ function List.Create(parent)
             { text = SORT_NAMES.aq, value = "aq" }, { text = SORT_NAMES.name, value = "name" }, { text = SORT_NAMES.level, value = "level" },
         }, function(v) ns.UI.SetSort(v) end, ns.db.sort)
     end)
-    SimpleTooltip(sortButton, "Sort", "The order of the list: AtlasQuest's, by quest name, or by quest level.")
-
-    -- professions: a menu of check boxes
-    local profButton = CreateDropdown(parent, -94)
-    panel.profButton = profButton
-    profButton.icon:SetTexture("Interface\\Icons\\Trade_BlackSmithing")
-    profButton:SetScript("OnClick", function(self)
-        List.OpenMenu(self, ProfessionEntries, PickProfession, nil)
-    end)
-    SimpleTooltip(profButton, "Professions", "Which profession quests the list and the chains show: your character's professions, the ones you pick, or none.")
+    SimpleTooltip(sortButton, "Sort", "The order of the quests (AtlasQuest's, by name or by level) and of the instance menu (by level: each expansion's dungeons, raids and battlegrounds from the lowest level up).")
 
     local classCheck = CreateFrame("CheckButton", "QuestsInChainsMyClassCheck", parent, "UICheckButtonTemplate")
     panel.classCheck = classCheck
     classCheck:SetWidth(24)
     classCheck:SetHeight(24)
-    classCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, -121)
+    classCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, -93)
     _G[classCheck:GetName() .. "Text"]:SetText("My class/race")
     classCheck:SetHitRectInsets(0, -80, 0, 0)
     classCheck:SetScript("OnClick", function(self) ns.UI.SetMyClassOnly(self:GetChecked() and true or false) end)
@@ -863,7 +875,7 @@ function List.Create(parent)
     panel.hideCheck = hideCheck
     hideCheck:SetWidth(24)
     hideCheck:SetHeight(24)
-    hideCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 112, -121)
+    hideCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 112, -93)
     _G[hideCheck:GetName() .. "Text"]:SetText("Hide completed")
     hideCheck:SetHitRectInsets(0, -90, 0, 0)
     hideCheck:SetScript("OnClick", function(self) ns.UI.SetHideCompleted(self:GetChecked() and true or false) end)
@@ -872,8 +884,8 @@ function List.Create(parent)
     local progress = CreateFrame("StatusBar", nil, parent)
     panel.progress = progress
     progress:SetHeight(14)
-    progress:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, -150)
-    progress:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, -150)
+    progress:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, -122)
+    progress:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, -122)
     progress:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     progress:SetStatusBarColor(0.25, 0.6, 0.25)
     progress:SetMinMaxValues(0, 1)

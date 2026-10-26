@@ -5,7 +5,6 @@
 --   opts.faction   "A" or "H" (nil: no faction filter)
 --   opts.classBit  class bit, or nil for all classes
 --   opts.raceBit   race bit, or nil for all races
---   opts.skillOk   function(skill line ID) -> are this profession's quests shown (nil: all)
 --   opts.status    function(id) -> "completed", "active", "available", "locked",
 --                  "unavailable", "otherclass" or "otherrace" (nil: every quest "available")
 --
@@ -91,7 +90,7 @@ end
 -- ---------------------------------------------------------------- visibility
 local function MakeVisible(opts, root)
     local Q = ns.quests
-    local fac, cb, rb, sk = opts.faction, opts.classBit, opts.raceBit, opts.skillOk
+    local fac, cb, rb = opts.faction, opts.classBit, opts.raceBit
     return function(id)
         local q = Q[id]
         if not q then return false end
@@ -99,7 +98,6 @@ local function MakeVisible(opts, root)
         if fac and q.fa and q.fa ~= fac then return false end
         if cb and q.cl and band(q.cl, cb) == 0 then return false end
         if rb and q.rc and band(q.rc, rb) == 0 then return false end
-        if sk and q.sk and not sk(q.sk[1]) then return false end
         return true
     end
 end
