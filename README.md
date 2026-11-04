@@ -40,6 +40,7 @@ These are stock copies, untouched:
 | GearScoreLite | Mirrikat45 & Leo |
 | LibMapData-1.0 (library file only: no .toc, so the game doesn't load it, and no addon here uses it) | (no author listed) |
 | Postal | Xinhuan |
+| TomTom (r240, the 3.3.x release) | jnwhiteh (Cladhaire) |
 
 ## Installing
 
