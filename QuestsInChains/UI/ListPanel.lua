@@ -744,7 +744,7 @@ local function LegendTooltip(self)
         local c = ns.QUEST_COLORS[l[1]]
         GameTooltip:AddLine(l[2], c[1], c[2], c[3])
     end
-    GameTooltip:AddLine("A daily, profession, class or race quest whose prerequisites are missing is shown darker.", 0.7, 0.7, 0.7, true)
+    GameTooltip:AddLine("As in AtlasQuest: by the quest's level against yours.", 0.7, 0.7, 0.7, true)
     GameTooltip:Show()
 end
 

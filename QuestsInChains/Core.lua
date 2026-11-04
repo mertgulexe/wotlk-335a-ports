@@ -55,61 +55,67 @@ ns.PROFESSION_NAME = {
     [197] = "Tailoring", [185] = "Cooking", [129] = "First Aid", [356] = "Fishing", [762] = "Riding",
 }
 
--- the colour of a quest's name: in the quest log, then not for the character (any more), then what
--- kind of quest it is (a daily stays blue when done: it can be taken again), then whether it can be
--- taken now
+-- the colour of a quest's name, as AtlasQuest colours its quest list (AtlasQuestSetTextandButtons):
+-- by the quest's level against the player's, blue while it is in the quest log, white once it is
+-- finished (completed on the server, or ticked as finished in AtlasQuest). AtlasQuest's own options
+-- apply too: "no colour check" makes every level yellow, and its quest log check can be off.
 ns.QUEST_COLORS = {
-    active = { 1, 0.82, 0 },           -- in the quest log
-    daily = { 0.3, 0.65, 1 },          -- daily or weekly
-    completed = { 0.25, 0.75, 0.25 },
-    cannot = { 0.85, 0.3, 0.3 },       -- unavailable, other class or race
+    -- AtlasQuest's colours (Grau, Gruen, Gelb, Orange, Rot, Blau, WHITE)
+    grey = { 0.616, 0.616, 0.616 },    -- 8 or more levels below the player
+    green = { 0.118, 1, 0 },           -- 3 to 7 levels below
+    yellow = { 1, 0.824, 0 },          -- up to 2 levels above or below
+    orange = { 1, 0.502, 0 },          -- 3 or 4 levels above
+    red = { 1, 0, 0 },                 -- 5 or more levels above
+    blue = { 0, 0.439, 0.867 },        -- in the quest log
+    white = { 1, 1, 1 },               -- finished
+    -- the "Daily" / "Weekly" and "Requires <skill>" lines of tooltips and details
+    daily = { 0.3, 0.65, 1 },
     profession = { 1, 0.55, 0.15 },
-    class = { 0.95, 0.75, 0.45 },      -- a class quest of several classes (one class: its class colour)
-    race = { 0.8, 0.5, 1 },
-    available = { 1, 1, 1 },           -- not started, can be taken
-    locked = { 0.6, 0.6, 0.6 },        -- not started, its prerequisites are not done yet
 }
-local CLASS_FILE_OF_BIT = {
-    [1] = "WARRIOR", [2] = "PALADIN", [4] = "HUNTER", [8] = "ROGUE", [16] = "PRIEST", [32] = "DEATHKNIGHT",
-    [64] = "SHAMAN", [128] = "MAGE", [256] = "WARLOCK", [1024] = "DRUID",
-}
-local LOCKED_DIM = 0.65 -- a quest of a kind (daily, profession, class, race) that is locked: its colour, dimmed
 
--- category of a quest for its colour, from its status and data
+-- is the quest ticked as finished in AtlasQuest (in any of its AtlasQuest slots)?
+local function AtlasQuestFinished(id)
+    local aq = rawget(_G, "AQ")
+    if type(aq) ~= "table" then return false end
+    for _, s in ipairs(ns.SlotsOf(id) or {}) do
+        local inst = ns.instances[s.inst]
+        if inst and aq["AQFinishedQuest_Inst" .. inst.aq .. "Quest" .. s.slot .. (s.side == "H" and "_HORDE" or "")] == 1 then
+            return true
+        end
+    end
+    return false
+end
+ns.AtlasQuestFinished = AtlasQuestFinished
+
+-- the level colour, with AtlasQuest's limits (the quest's level minus the player's)
+function ns.LevelColorName(questLevel)
+    local d = (tonumber(questLevel) or ns.PlayerLevel()) - ns.PlayerLevel()
+    if d >= -2 and d <= 2 then return "yellow" end
+    if d > 2 and d <= 4 then return "orange" end
+    if d >= 5 then return "red" end
+    if d < -7 then return "grey" end
+    return "green"
+end
+
+-- the colour name of a quest: white (finished), blue (in the quest log), or its level colour
 function ns.QuestCategory(id, status)
+    status = status or ns.Status(id)
+    if status == "completed" or AtlasQuestFinished(id) then return "white" end
+    if status == "active" and not rawget(_G, "AQCheckQuestlog") then return "blue" end
+    if rawget(_G, "AQNOColourCheck") then return "yellow" end
     local q = ns.quests[id]
-    if status == "active" then return "active" end
-    if ns.CANNOT[status] then return "cannot" end
-    if q and (q.dy or q.wk) then return "daily" end -- (a done daily can be taken again)
-    if status == "completed" then return "completed" end
-    if q and q.sk then return "profession" end
-    if q and q.cl then return "class" end
-    if q and q.rc then return "race" end
-    if status == "available" then return "available" end
-    return "locked"
+    return ns.LevelColorName(q and (q.lv or q.rl))
 end
 
 function ns.QuestColor(id, status)
-    status = status or ns.Status(id)
-    local cat = ns.QuestCategory(id, status)
-    local c = ns.QUEST_COLORS[cat]
-    local r, g, b = c[1], c[2], c[3]
-    if cat == "class" then
-        local file = CLASS_FILE_OF_BIT[ns.quests[id].cl]
-        local cc = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
-        if cc then r, g, b = cc.r, cc.g, cc.b end
-    end
-    if (cat == "daily" or cat == "profession" or cat == "class" or cat == "race")
-        and status == "locked" then
-        r, g, b = r * LOCKED_DIM, g * LOCKED_DIM, b * LOCKED_DIM
-    end
-    return r, g, b -- (exactly three values: callers pass them on to SetTextColor and the like)
+    local c = ns.QUEST_COLORS[ns.QuestCategory(id, status)]
+    return c[1], c[2], c[3] -- (exactly three values: callers pass them on to SetTextColor and the like)
 end
--- the colour legend (the "?" button of the list)
+-- the colour legend (the "i" button of the list)
 ns.LEGEND = {
-    { "available", "Not started" }, { "locked", "Not started, prerequisites missing" }, { "active", "In progress (quest log)" },
-    { "completed", "Completed" }, { "daily", "Daily / weekly" }, { "profession", "Profession" },
-    { "class", "Class (in its class colour)" }, { "race", "Race" }, { "cannot", "Not for you (any more)" },
+    { "red", "5 or more levels above you" }, { "orange", "3 to 4 levels above you" }, { "yellow", "Within 2 levels of you" },
+    { "green", "3 to 7 levels below you" }, { "grey", "8 or more levels below you" }, { "blue", "In your quest log" },
+    { "white", "Completed" },
 }
 ns.FACTION_NAMES = { A = "Alliance", H = "Horde" }
 

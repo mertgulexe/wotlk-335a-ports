@@ -74,6 +74,8 @@ function AQ.Setup()
     if type(rawget(_G, "AQClearALL")) == "function" then hooksecurefunc("AQClearALL", Hide) end
     if type(rawget(_G, "AQButtonSTORY_SetText")) == "function" then hooksecurefunc("AQButtonSTORY_SetText", Hide) end
     if type(rawget(_G, "AQNextPageR_OnClick")) == "function" then hooksecurefunc("AQNextPageR_OnClick", OnNextPage) end
+    -- a quest ticked (or unticked) as finished in AtlasQuest changes its colour here (white)
+    if type(rawget(_G, "AQFinishedQuest_OnClick")) == "function" then hooksecurefunc("AQFinishedQuest_OnClick", ns.StatusChanged) end
     return true
 end
 
