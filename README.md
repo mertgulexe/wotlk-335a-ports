@@ -12,6 +12,8 @@ A few were ported or fixed to work on the 3.3.5a client. The rest are unmodified
 | GlobalIgnoreList | IceyPop | **Ported** | Works on 3.3.5a. Chat filters you edit stay edited, and there's no chat message at login. Also fixes a game freeze caused by a filter ending in "not", and errors in the ignore list. |
 | MBB (MinimapButtonBag-Reborn) | GrazyMonster; based on MinimapButtonBag by karlsnyder, vallantv and SkunFly | **Ported** | Works on 3.3.5a: collects the minimap icons into one button. Icons are gathered before the loading screen ends, and the button circles the minimap edge when dragged. Adds an option to hide its tooltip. Details are in [`CHANGES_3.3.5a.md`](MBB/CHANGES_3.3.5a.md). |
 | WDM (WoW Dungeon Maps) | Trimitor | **Fixed** | Opening the map in combat no longer causes "Interface action failed". Clicking a dungeon or raid entrance on the world map shows that instance's map, with its floors. Needs the map files listed under [Requirements](#requirements). |
+| Atlas (1.17.0) | Dan Gilbert and the Atlas team | **Fixed** (awaiting in-game test) | After one of Atlas's dropdown menus had been used, opening the world map in combat showed "Interface action failed". The dropdowns now open Atlas's own list instead of Blizzard's shared one; they look and work the same. Details and the few differences are in [`CHANGES_3.3.5a.md`](Atlas/CHANGES_3.3.5a.md). |
+| AtlasLoot (v5.11.04) | Hegarol and the AtlasLoot team | **Modified** (awaiting in-game test) | One call in its Atlas integration now uses Atlas's own dropdown list instead of Blizzard's. It belongs to the Atlas fix above; update the two together. AtlasLoot's own option dropdowns are unchanged. |
 | Auctionator | Zirco | **Modified** | The "Scan AH" button in the profession window is removed. |
 | AuctionatorMiniFeatures | ckaotik | **Fixed** | Fixes an error at load. |
 | Attune | CixiDelmont, Yvely | **Modified** | No chat message at login. The minimap icon appears right at login instead of after the server sends quest data. |
@@ -35,8 +37,8 @@ These are stock copies, untouched:
 | !Astrolabe | Esamynn, Trimitor |
 | ACP (Addon Control Panel) | sylvanaar, Rophy, Saien |
 | AllStats | Ganoran |
-| Atlas, Atlas_Battlegrounds, Atlas_DungeonLocs, Atlas_OutdoorRaids, Atlas_Transportation | Dan Gilbert and the Atlas team |
-| AtlasLoot, AtlasLootFu, AtlasLoot_BurningCrusade, AtlasLoot_Crafting, AtlasLoot_OriginalWoW, AtlasLoot_WorldEvents, AtlasLoot_WrathoftheLichKing | Hegarol and the AtlasLoot team |
+| Atlas_Battlegrounds, Atlas_DungeonLocs, Atlas_OutdoorRaids, Atlas_Transportation (map plugins for Atlas) | Dan Gilbert and the Atlas team |
+| AtlasLootFu, AtlasLoot_BurningCrusade, AtlasLoot_Crafting, AtlasLoot_OriginalWoW, AtlasLoot_WorldEvents, AtlasLoot_WrathoftheLichKing (AtlasLoot's modules) | Hegarol and the AtlasLoot team |
 | GearScoreLite | Mirrikat45 & Leo |
 | LibMapData-1.0 (library file only: no .toc, so the game doesn't load it, and no addon here uses it) | (no author listed) |
 | Postal | Xinhuan |

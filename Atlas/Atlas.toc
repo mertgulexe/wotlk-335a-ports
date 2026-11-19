@@ -35,6 +35,7 @@ Locale\Atlas-zhTW.lua
 AtlasMaps.lua
 
 AtlasDropDown.lua
+AtlasDropDownList.lua
 
 Atlas.lua
 Atlas.xml

@@ -783,6 +783,9 @@ function Atlas_Init()
 	--make the Atlas window go all the way to the edge of the screen, exactly
 	AtlasFrame:SetClampRectInsets(12, 0, -12, 0);
 
+	--3.3.5a taint fix: the dropdowns open Atlas's own list (AtlasDropDownList.lua)
+	Atlas_RegisterDropDowns();
+
 	--init saved vars for a new install
 	if ( AtlasOptions == nil ) then
 		Atlas_FreshOptions();
@@ -1013,7 +1016,9 @@ function Atlas_Refresh()
 			AtlasSwitchButton:SetText(ATLAS_INSTANCE_BUTTON);
 		end
 		AtlasSwitchButton:Show();
-		UIDropDownMenu_Initialize(AtlasSwitchDD, AtlasSwitchDD_OnLoad);
+		--3.3.5a taint fix: no call into Blizzard's dropdown code. The list is filled when it
+		--is opened (AtlasSwitchButton_OnClick); an open list is closed, as before.
+		AtlasDropDown_Close();
 	else
 		AtlasSwitchButton:Hide();
 	end
@@ -1022,6 +1027,34 @@ function Atlas_Refresh()
 		TitanPanelButton_UpdateButton("Atlas");
 	end
 	
+end
+
+--3.3.5a taint fix: Atlas's dropdowns open Atlas's own list (AtlasDropDownList.lua) instead of
+--Blizzard's shared one. The functions are looked up when they are used, as before.
+local dropDownsRegistered = false;
+function Atlas_RegisterDropDowns()
+	if ( dropDownsRegistered ) then
+		return;
+	end
+	dropDownsRegistered = true;
+	AtlasDropDown_Register(AtlasFrameDropDownType, {
+		entries = function() return AtlasFrameDropDownType_Initialize(); end,
+		selected = function() return AtlasOptions.AtlasType; end,
+		click = function(index) AtlasFrameDropDownType_OnClick(index); end,
+	});
+	AtlasDropDown_Register(AtlasFrameDropDown, {
+		entries = function() return AtlasFrameDropDown_Initialize(); end,
+		selected = function() return AtlasOptions.AtlasZone; end,
+		click = function(index) AtlasFrameDropDown_OnClick(index); end,
+	});
+	--this one opens under the switch button
+	AtlasDropDown_Register(AtlasSwitchDD, {
+		entries = function() return AtlasSwitchDD_OnLoad(); end,
+		click = function(index) AtlasSwitchDD_OnClick(index); end,
+		anchor = "AtlasSwitchButton",
+		xOffset = 0,
+		yOffset = 0,
+	});
 end
 
 
@@ -1036,23 +1069,30 @@ function AtlasSwitchButton_OnClick()
 		AtlasSwitchDD_Set(1);
 	else
 		--more than one link, so it's dropdown menu time
-		ToggleDropDownMenu(1, nil, AtlasSwitchDD, "AtlasSwitchButton", 0, 0);
+		--3.3.5a taint fix: Atlas's own list instead of ToggleDropDownMenu
+		Atlas_RegisterDropDowns();
+		AtlasDropDown_Toggle(AtlasSwitchDD);
 	end
 end
 
+--3.3.5a taint fix: returns the rows of the list instead of adding them to Blizzard's list.
+--An AtlasLoot without the fix still passes this function to UIDropDownMenu_Initialize when
+--the map changes; as before, that closes an open list.
 function AtlasSwitchDD_OnLoad()
-	local info, i;
-	for k,v in pairs(ATLAS_INST_ENT_DROPDOWN) do
-		info = {
-			text = AtlasMaps[v].ZoneName[1];
-			func = AtlasSwitchDD_OnClick;
-		};
-		UIDropDownMenu_AddButton(info);
+	AtlasDropDown_Close();
+	local entries = {};
+	for index = 1, getn(ATLAS_INST_ENT_DROPDOWN) do
+		entries[index] = AtlasMaps[ATLAS_INST_ENT_DROPDOWN[index]].ZoneName[1];
 	end
+	return entries;
 end
 
-function AtlasSwitchDD_OnClick()
-	AtlasSwitchDD_Set(this:GetID());
+--3.3.5a taint fix: gets the number of the clicked row ("this" is used when it is not given)
+function AtlasSwitchDD_OnClick(index)
+	if ( type(index) ~= "number" ) then
+		index = this:GetID();
+	end
+	AtlasSwitchDD_Set(index);
 end
 
 function AtlasSwitchDD_Set(index)
@@ -1079,74 +1119,75 @@ end
 
 --Function used to initialize the map type dropdown menu
 --Cycle through Atlas_MapTypes to populate the dropdown
+--3.3.5a taint fix: returns the rows of the list instead of adding them to Blizzard's list
 function AtlasFrameDropDownType_Initialize()
 
-	local info, i;
+	local entries = {};
 	local catName = Atlas_DropDownLayouts_Order[AtlasOptions.AtlasSortBy];
 	local subcatOrder = Atlas_DropDownLayouts_Order[catName];
 	for i = 1, getn(subcatOrder), 1 do
-		info = {
-			text = subcatOrder[i];
-			func = AtlasFrameDropDownType_OnClick;
-		};
-		UIDropDownMenu_AddButton(info);
+		tinsert(entries, subcatOrder[i]);
 	end
 	for i = 1, getn(Atlas_MapTypes), 1 do
-		info = {
-			text = Atlas_MapTypes[i];
-			func = AtlasFrameDropDownType_OnClick;
-		};
-		UIDropDownMenu_AddButton(info);
+		tinsert(entries, Atlas_MapTypes[i]);
 	end
+	return entries;
 	
 end
 
 --Called whenever the map type dropdown menu is shown
+--3.3.5a taint fix: the text and the width are set without Blizzard's dropdown functions
 function AtlasFrameDropDownType_OnShow()
-	UIDropDownMenu_Initialize(AtlasFrameDropDownType, AtlasFrameDropDownType_Initialize);
-	UIDropDownMenu_SetSelectedID(AtlasFrameDropDownType, AtlasOptions.AtlasType);
-	UIDropDownMenu_SetWidth(AtlasFrameDropDownType, 190);
+	Atlas_RegisterDropDowns();
+	AtlasDropDown_Update(AtlasFrameDropDownType, 190);
 end
 
 --Called whenever an item in the map type dropdown menu is clicked
 --Sets the main dropdown menu contents to reflect the category of map selected
-function AtlasFrameDropDownType_OnClick()
-	local thisID = this:GetID();
-	UIDropDownMenu_SetSelectedID(AtlasFrameDropDownType, thisID);
+--3.3.5a taint fix: gets the number of the clicked row ("this" is used when it is not given)
+function AtlasFrameDropDownType_OnClick(index)
+	local thisID = index;
+	if ( type(thisID) ~= "number" ) then
+		thisID = this:GetID();
+	end
 	AtlasOptions.AtlasType = thisID;
 	AtlasOptions.AtlasZone = 1;
+	AtlasDropDown_Update(AtlasFrameDropDownType);
 	AtlasFrameDropDown_OnShow();
 	Atlas_Refresh();
 end
 
 --Function used to initialize the main dropdown menu
 --Looks at the status of AtlasType to determine how to populate the list
+--3.3.5a taint fix: returns the rows of the list instead of adding them to Blizzard's list
 function AtlasFrameDropDown_Initialize()
 
-	local info;
-	for k,v in pairs(ATLAS_DROPDOWNS[AtlasOptions.AtlasType]) do
-		info = {
-			text = AtlasMaps[v].ZoneName[1];
-			func = AtlasFrameDropDown_OnClick;
-		};
-		UIDropDownMenu_AddButton(info);
+	local entries = {};
+	local zones = ATLAS_DROPDOWNS[AtlasOptions.AtlasType];
+	for index = 1, getn(zones) do
+		entries[index] = AtlasMaps[zones[index]].ZoneName[1];
 	end
+	return entries;
 
 end
 
 --Called whenever the main dropdown menu is shown
+--3.3.5a taint fix: the text and the width are set without Blizzard's dropdown functions
 function AtlasFrameDropDown_OnShow()
-	UIDropDownMenu_Initialize(AtlasFrameDropDown, AtlasFrameDropDown_Initialize);
-	UIDropDownMenu_SetSelectedID(AtlasFrameDropDown, AtlasOptions.AtlasZone);
-	UIDropDownMenu_SetWidth(AtlasFrameDropDown, 190);
+	Atlas_RegisterDropDowns();
+	AtlasDropDown_Update(AtlasFrameDropDown, 190);
 end
 
 --Called whenever an item in the main dropdown menu is clicked
 --Sets the newly selected map as current and refreshes the frame
-function AtlasFrameDropDown_OnClick()
-	i = this:GetID();
-	UIDropDownMenu_SetSelectedID(AtlasFrameDropDown, i);
+--3.3.5a taint fix: gets the number of the clicked row ("this" is used when it is not given)
+function AtlasFrameDropDown_OnClick(index)
+	local i = index;
+	if ( type(i) ~= "number" ) then
+		i = this:GetID();
+	end
 	AtlasOptions.AtlasZone = i;
+	AtlasDropDown_Update(AtlasFrameDropDown);
 	Atlas_Refresh();
 end
 

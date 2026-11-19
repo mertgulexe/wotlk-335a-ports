@@ -142,31 +142,42 @@ function AtlasOptions_UpdateSlider(text)
 end
 
 
+--3.3.5a taint fix: this dropdown opens Atlas's own list (AtlasDropDownList.lua) instead of
+--Blizzard's shared one, as the dropdowns of the Atlas window do.
+
+--Returns the rows of the list
 function AtlasOptionsFrameDropDownCats_Initialize()
 
-	local i;
+	local entries = {};
 	for i = 1, getn(Atlas_DropDownLayouts_Order), 1 do
-		info = {
-			text = Atlas_DropDownLayouts_Order[i];
-			func = AtlasOptionsFrameDropDownCats_OnClick;
-		};
-		UIDropDownMenu_AddButton(info);
-		i = i + 1;
+		entries[i] = Atlas_DropDownLayouts_Order[i];
 	end
+	return entries;
 	
 end
 
 
+local dropDownRegistered = false;
 function AtlasOptionsFrameDropDownCats_OnShow()
-	UIDropDownMenu_Initialize(AtlasOptionsFrameDropDownCats, AtlasOptionsFrameDropDownCats_Initialize);
-	UIDropDownMenu_SetSelectedID(AtlasOptionsFrameDropDownCats, AtlasOptions.AtlasSortBy);
-	UIDropDownMenu_SetWidth(AtlasOptionsFrameDropDownCats, 100);
+	if ( not dropDownRegistered ) then
+		dropDownRegistered = true;
+		AtlasDropDown_Register(AtlasOptionsFrameDropDownCats, {
+			entries = function() return AtlasOptionsFrameDropDownCats_Initialize(); end,
+			selected = function() return AtlasOptions.AtlasSortBy; end,
+			click = function(index) AtlasOptionsFrameDropDownCats_OnClick(index); end,
+		});
+	end
+	AtlasDropDown_Update(AtlasOptionsFrameDropDownCats, 100);
 end
 
-function AtlasOptionsFrameDropDownCats_OnClick()
-	local thisID = this:GetID();
-	UIDropDownMenu_SetSelectedID(AtlasOptionsFrameDropDownCats, thisID);
+--Gets the number of the clicked row ("this" is used when it is not given)
+function AtlasOptionsFrameDropDownCats_OnClick(index)
+	local thisID = index;
+	if ( type(thisID) ~= "number" ) then
+		thisID = this:GetID();
+	end
 	AtlasOptions.AtlasSortBy = thisID;
+	AtlasDropDown_Update(AtlasOptionsFrameDropDownCats);
 	Reset_Dropdowns();
 end
 

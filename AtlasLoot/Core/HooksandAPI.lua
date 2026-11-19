@@ -242,7 +242,14 @@ function AtlasLoot_Refresh()
 			AtlasSwitchButton:SetText(ATLAS_INSTANCE_BUTTON);
 		end
 		AtlasSwitchButton:Show();
-		UIDropDownMenu_Initialize(AtlasSwitchDD, AtlasSwitchDD_OnLoad);
+		--3.3.5a taint fix: the fixed Atlas fills its own list when the list is opened. Calling
+		--Blizzard's dropdown code from addon code left tainted values behind, and the client then
+		--blocked the world map in combat. An Atlas without the fix still gets the old call.
+		if ( AtlasDropDown_Close ) then
+			AtlasDropDown_Close();
+		else
+			UIDropDownMenu_Initialize(AtlasSwitchDD, AtlasSwitchDD_OnLoad);
+		end
 	else
 		AtlasSwitchButton:Hide();
 	end
